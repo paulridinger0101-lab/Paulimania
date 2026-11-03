@@ -184,6 +184,33 @@ tr.click:hover td { background: var(--bg); }
 .scale { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
 .scale button { padding: 7px 0; font-variant-numeric: tabular-nums; }
 
+/* Rating editor */
+.attrs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+@media (max-width: 400px) { .attrs { grid-template-columns: 1fr; } }
+.attr { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
+.attr.dim { opacity: .7; }
+.attr-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.attr-val { font-family: var(--font-display); font-weight: 700; font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent); }
+.attr .seg button { background: var(--surface); padding: 6px 0; }
+.attr .seg button[aria-pressed="true"] { background: var(--accent); }
+.check { display: flex; gap: 8px; align-items: flex-start; }
+.check input { flex: none; margin-top: 3px; }
+.small-btn { padding: 5px 10px; font-size: 13px; }
+.trend { font-size: 11px; }
+.trend.up { color: var(--accent); }
+.trend.down { color: var(--warn); }
+/* Team comparison */
+.cmp summary { font-size: 15px; }
+.cmp-grid { display: grid; gap: 6px; margin-top: 10px; max-width: 560px; }
+.cmp-row { display: grid; grid-template-columns: 34px 1fr 64px 1fr 34px; align-items: center; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.cmp-l { text-align: center; color: var(--muted); font-weight: 600; }
+.cmp-v:last-child { text-align: right; }
+.cmp-bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; display: flex; }
+.cmp-bar.a { justify-content: flex-end; }
+.cmp-bar.a i { background: var(--team-a); }
+.cmp-bar.b i { background: var(--team-b); }
+.cmp-bar i { display: block; height: 100%; }
+
 /* History */
 .game { display: grid; gap: 8px; padding-block: 12px; border-bottom: 1px solid var(--line); }
 .game:last-child { border-bottom: 0; }
@@ -222,6 +249,35 @@ details summary { cursor: pointer; font-weight: 600; }
 
 const POS = { TW: "Torwart", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm" };
 const POS_ORDER = ["TW", "ABW", "MIT", "STU"];
+// Rating criteria. w = weight in a field player's overall rating.
+const ATTRS = [
+  { k: "kon", name: "Kondition", short: "Kondi", hint: "Hält er das ganze Spiel durch, läuft er viel?", w: 1.1 },
+  { k: "tem", name: "Tempo", short: "Tempo", hint: "Antritt und Endgeschwindigkeit", w: 1.0 },
+  { k: "bal", name: "Ballbehandlung", short: "Ball", hint: "Annahme, Dribbling, behauptet er den Ball?", w: 1.2 },
+  { k: "pas", name: "Passspiel", short: "Pass", hint: "Kommen kurze und lange Pässe an?", w: 1.0 },
+  { k: "spv", name: "Spielverständnis", short: "Spielv.", hint: "Stellungsspiel, Übersicht, gute Entscheidungen", w: 1.3 },
+  { k: "zwk", name: "Zweikampfverhalten", short: "Zweik.", hint: "Tackling, Kopfball, Körpereinsatz, gewinnt er Duelle?", w: 1.1 },
+  { k: "abs", name: "Abschluss", short: "Abschl.", hint: "Torgefahr und Schusstechnik", w: 0.9 },
+  { k: "erf", name: "Erfahrung & Sicherheit", short: "Erfahr.", hint: "Ruhe am Ball, macht wenig Fehler", w: 0.8 },
+  { k: "tor", name: "Torwartspiel", short: "Torwart", hint: "Reflexe, Fangen, Strafraum. Bei Feldspielern: taugt er als Ersatz-Torwart?", w: 0 },
+];
+const FIELD_ATTRS = ATTRS.filter(a => a.w > 0);
+function attrsOf(p) {
+  const base = p.skill || 5, out = {};
+  for (const a of ATTRS) out[a.k] = (p.attrs && p.attrs[a.k]) || (a.k === "tor" ? (p.pos === "TW" ? base : 2) : base);
+  return out;
+}
+// Overall rating 1-10. Keepers count mostly by their goalkeeping.
+function ovr(p) {
+  if (!p) return 5;
+  const at = attrsOf(p);
+  const wsum = FIELD_ATTRS.reduce((s, a) => s + a.w, 0);
+  const field = FIELD_ATTRS.reduce((s, a) => s + a.w * at[a.k], 0) / wsum;
+  const v = p.pos === "TW" ? 0.65 * at.tor + 0.35 * field : field;
+  return Math.round(v * 10) / 10;
+}
+function f1(n) { return (Math.round(n * 10) / 10).toFixed(1).replace(".", ","); }
+function today() { return new Date().toISOString().slice(0, 10); }
 const TARGET = 22;
 const LS_KEY = "paulimania-v1";
 
@@ -313,9 +369,16 @@ function makeScorer(ids) {
   const lg = lastGame();
   const lastTeam = {};
   if (lg) { lg.a.forEach(id => lastTeam[id] = "a"); lg.b.forEach(id => lastTeam[id] = "b"); }
+  const cache = {};
+  for (const id of ids) { const p = P(id); cache[id] = { o: ovr(p), at: attrsOf(p || {}) }; }
   return (a, b) => {
-    const sum = t => t.reduce((s, id) => s + (P(id)?.skill || 5), 0);
+    const sum = t => t.reduce((s, id) => s + cache[id].o, 0);
     let cost = Math.abs(sum(a) - sum(b)) * 3;
+    // also balance each criterion, so one team isn't all runners and the other all technicians
+    for (const at of FIELD_ATTRS) {
+      const sa = a.reduce((s, id) => s + cache[id].at[at.k], 0), sb = b.reduce((s, id) => s + cache[id].at[at.k], 0);
+      cost += Math.abs(sa - sb) * 0.25;
+    }
     for (const pos of POS_ORDER) {
       const ca = a.filter(id => P(id)?.pos === pos).length;
       const cb = b.filter(id => P(id)?.pos === pos).length;
@@ -353,9 +416,10 @@ function buildTeams(ids) {
 }
 function teamStats(t) {
   const ps = t.map(P).filter(Boolean);
-  const sum = ps.reduce((s, p) => s + p.skill, 0);
+  const sum = ps.reduce((s, p) => s + ovr(p), 0);
   const byPos = Object.fromEntries(POS_ORDER.map(k => [k, ps.filter(p => p.pos === k).length]));
-  return { n: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos };
+  const attrAvg = Object.fromEntries(FIELD_ATTRS.map(a => [a.k, ps.length ? ps.reduce((s, p) => s + attrsOf(p)[a.k], 0) / ps.length : 0]));
+  return { n: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos, attrAvg };
 }
 function sortTeam(t) {
   return t.slice().sort((x, y) => POS_ORDER.indexOf(P(x)?.pos) - POS_ORDER.indexOf(P(y)?.pos) || (P(x)?.name || "").localeCompare(P(y)?.name || "", "de"));
@@ -377,6 +441,12 @@ function playerStats() {
   });
   recent.forEach((g, i) => { for (const id of [...g.a, ...g.b]) if (res[id]) res[id].recent[i] = true; });
   return res;
+}
+function trend(p) {
+  const h = p.history || [];
+  if (h.length < 2) return 0;
+  const d = h[h.length - 1].ovr - h[h.length - 2].ovr;
+  return Math.abs(d) < 0.05 ? 0 : d;
 }
 function statusOf(p, st, lg) {
   if (lg && (lg.a.includes(p.id) || lg.b.includes(p.id))) return { label: "Vorrecht", cls: "" };
@@ -464,25 +534,33 @@ function renderMatchday() {
 function renderTeams() {
   const cur = state.current;
   const A = teamStats(cur.a), B = teamStats(cur.b);
-  const diff = Math.abs(A.sum - B.sum);
+  const diff = Math.round(Math.abs(A.sum - B.sum) * 10) / 10;
+  const cmp = FIELD_ATTRS.map(at => { const va = A.attrAvg[at.k], vb = B.attrAvg[at.k]; return `
+    <div class="cmp-row"><span class="cmp-v">${f1(va)}</span>
+      <div class="cmp-bar a"><i style="width:${va * 10}%"></i></div>
+      <span class="cmp-l">${at.short}</span>
+      <div class="cmp-bar b"><i style="width:${vb * 10}%"></i></div>
+      <span class="cmp-v">${f1(vb)}</span></div>`; }).join("");
   const missing = [...cur.selected].filter(id => state.players[id] && !cur.a.includes(id) && !cur.b.includes(id));
   const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length;
   const team = (key, title, t, st) => `
     <div class="team ${key}">
-      <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${st.avg.toFixed(1).replace(".", ",")}</span></header>
+      <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${f1(st.avg)}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
-        <span class="pos">${p.pos}</span><span class="nm">${esc(p.name)}</span><span class="skill">${p.skill}</span></button></li>`; }).join("")}</ol>
+        <span class="pos">${p.pos}</span><span class="nm">${esc(p.name)}</span><span class="skill">${f1(ovr(p))}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${POS_ORDER.map(k => `<span>${k} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
   <section class="panel">
     <div class="row spread">
       <h2>Teams</h2>
-      <div class="balance"><span>Stärke <b>${A.sum}</b> : <b>${B.sum}</b></span>
-        <span class="chip ${diff > 3 ? "warn" : ""}">${diff === 0 ? "Exakt ausgeglichen" : `Differenz ${diff}`}</span></div>
+      <div class="balance"><span>Stärke <b>${f1(A.sum)}</b> : <b>${f1(B.sum)}</b></span>
+        <span class="chip ${diff > 3 ? "warn" : ""}">${diff < 0.05 ? "Exakt ausgeglichen" : `Differenz ${f1(diff)}`}</span></div>
     </div>
     ${stale ? `<p class="chip warn" style="justify-self:start">Auswahl hat sich geändert. „Neu mischen“ drücken.</p>` : ""}
     <div class="teams">${team("a", "Team Gelb", cur.a, A)}${team("b", "Team Blau", cur.b, B)}</div>
+    <details class="cmp"><summary>Vergleich nach Kriterien (Durchschnitt pro Team)</summary>
+      <div class="cmp-grid">${cmp}</div></details>
     <p class="hint">Tausch von Hand: einen Spieler antippen, dann einen aus dem anderen Team. Die Stärkewerte sind nur für dich und kommen nicht in den WhatsApp-Text.</p>
     <div class="row">
       <button class="btn primary" data-act="copy">Für WhatsApp kopieren</button>
@@ -504,18 +582,20 @@ function renderSquad() {
     <div class="row spread"><h2>Kader <span class="muted" style="font-size:18px">${players.length}</span></h2>
       <div class="row">${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}
       <button class="btn primary" data-act="goto-new">Spieler hinzufügen</button></div></div>
-    <p class="hint">„Vorrecht“ heißt: war beim letzten gespeicherten Spieltag dabei. Die Punkte zeigen die letzten 8 Spieltage, links ist der neueste. Zum Bearbeiten eine Zeile antippen.</p>
+    <p class="hint">„Vorrecht“ heißt: war beim letzten gespeicherten Spieltag dabei. Die Punkte zeigen die letzten 8 Spieltage, links ist der neueste. Bewertungen kannst du jederzeit über „Bearbeiten“ anpassen. Der Pfeil zeigt, ob sich die Stärke seit der letzten Bewertung verändert hat.</p>
     <div class="tablewrap"><table>
-      <thead><tr><th>Name</th><th>Pos</th><th class="num">Stärke</th><th>Status</th><th>Letzte 8</th><th class="num">Spiele</th><th class="num">S-U-N</th><th>Zuletzt</th></tr></thead>
-      <tbody>${players.map(p => { const st = stats[p.id]; const s = statusOf(p, st, lg); return `
-        <tr class="click" data-edit="${p.id}" tabindex="0">
+      <thead><tr><th></th><th>Name</th><th>Pos</th><th class="num">Stärke</th><th>Status</th><th>Letzte 8</th><th class="num">Spiele</th><th class="num">S-U-N</th><th>Zuletzt</th><th>Bewertet</th></tr></thead>
+      <tbody>${players.map(p => { const st = stats[p.id]; const s = statusOf(p, st, lg); const tr = trend(p); return `
+        <tr>
+          <td><button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button></td>
           <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}${p.demo ? ` <span class="chip plain">Beispiel</span>` : ""}</td>
-          <td>${p.pos}</td><td class="num">${p.skill}</td>
+          <td>${p.pos}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
           <td><span class="chip ${s.cls}">${s.label}</span></td>
           <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("") || `<span class="muted small">–</span>`}</span></td>
           <td class="num">${st.total}</td>
           <td class="num">${st.w}-${st.d}-${st.l}</td>
           <td>${fmtDate(st.last)}</td>
+          <td class="muted">${p.ratedAt ? fmtDate(p.ratedAt) : "–"}</td>
         </tr>`; }).join("")}</tbody>
     </table></div>
   </section>`;
@@ -525,19 +605,28 @@ function renderSquad() {
 
 function renderEditor() {
   const isNew = state.editing === "new";
-  const p = isNew ? { name: "", skill: 5, pos: "MIT", active: true } : P(state.editing);
+  const p = isNew ? { name: "", pos: "MIT", active: true, attrs: Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
   if (!p) { state.editing = null; return ""; }
-  const d = state.draft || (state.draft = { ...p });
+  const d = state.draft || (state.draft = { ...p, attrs: attrsOf(p) });
+  const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
+  const hist = (p.history || []).slice(-6);
+  const preview = ovr(d);
   return `<section class="panel" id="editor">
-    <h2>${isNew ? "Neuer Spieler" : "Spieler bearbeiten"}</h2>
+    <div class="row spread"><h2>${isNew ? "Neuer Spieler" : `${esc(p.name)} bearbeiten`}</h2>
+      <div class="counter"><b>${f1(preview)}</b><span>Gesamt</span></div></div>
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
-      <div class="field"><label>Position</label><div class="seg">${POS_ORDER.map(k => `<button data-dpos="${k}" aria-pressed="${d.pos === k}">${POS[k]}</button>`).join("")}</div></div>
-      <div class="field" style="grid-column:1/-1"><label>Stärke: ${d.skill} von 10</label>
-        <div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dskill="${v}" aria-pressed="${d.skill === v}">${v}</button>`).join("")}</div>
-        <span class="hint">1 = Anfänger, 5 = solider Durchschnitt, 10 = bester Spieler der Runde.</span></div>
-      <label class="row small" style="grid-column:1/-1"><input type="checkbox" id="pactive" ${d.active !== false ? "checked" : ""}> Aktiv (pausierte Spieler, z. B. verletzt, erscheinen nicht in der Spieltag-Auswahl)</label>
+      <div class="field"><label>Hauptposition</label><div class="seg">${POS_ORDER.map(k => `<button data-dpos="${k}" aria-pressed="${d.pos === k}">${POS[k]}</button>`).join("")}</div></div>
     </div>
+    <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel.</p>
+    <div class="attrs">${ATTRS.map(a => `
+      <div class="attr ${a.k === "tor" && d.pos !== "TW" ? "dim" : ""}">
+        <div class="attr-head"><b>${a.name}</b><span class="attr-val">${d.attrs[a.k]}</span></div>
+        <span class="hint">${a.hint}</span>
+        ${scale(a.k, d.attrs[a.k])}
+      </div>`).join("")}</div>
+    <label class="check small"><input type="checkbox" id="pactive" ${d.active !== false ? "checked" : ""}> Aktiv (pausierte Spieler, z. B. verletzt, erscheinen nicht in der Spieltag-Auswahl)</label>
+    ${hist.length > 1 ? `<div class="small"><span class="muted">Entwicklung:</span> ${hist.map(h => `<span title="${fmtDate(h.date)}">${f1(h.ovr)} <span class="muted">(${fmtDate(h.date)})</span></span>`).join(" → ")}</div>` : ""}
     <div class="row">
       <button class="btn primary" data-act="save-player">Speichern</button>
       <button class="btn ghost" data-act="cancel-edit">Abbrechen</button>
@@ -603,7 +692,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-act],[data-swap],[data-edit],[data-dpos],[data-dskill],[data-delgame]");
+  const t = e.target.closest("[data-act],[data-swap],[data-edit],[data-dpos],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.swap) {
@@ -621,8 +710,12 @@ view.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.edit) { state.editing = t.dataset.edit; state.draft = null; state.confirmDel = false; render(); document.getElementById("editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
-  if (t.dataset.dpos) { state.draft.pos = t.dataset.dpos; state.draft.name = document.getElementById("pname").value; return render(); }
-  if (t.dataset.dskill) { state.draft.skill = +t.dataset.dskill; state.draft.name = document.getElementById("pname").value; return render(); }
+  if (t.dataset.dpos || t.dataset.dattr) {
+    const d = state.draft;
+    d.name = document.getElementById("pname").value; d.active = document.getElementById("pactive").checked;
+    if (t.dataset.dpos) d.pos = t.dataset.dpos; else d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v };
+    const y = window.scrollY; render(); window.scrollTo(0, y); return;
+  }
   if (t.dataset.delgame) {
     const id = t.dataset.delgame;
     if (state.confirmGame !== id) { state.confirmGame = id; return render(); }
@@ -636,7 +729,14 @@ view.addEventListener("click", async (e) => {
       const name = document.getElementById("pname").value.trim();
       if (!name) { toast("Bitte einen Namen eingeben."); return; }
       const d = state.draft;
-      const p = { id: state.editing === "new" ? uid() : state.editing, name, skill: d.skill, pos: d.pos, active: document.getElementById("pactive").checked };
+      const old = state.editing === "new" ? null : P(state.editing);
+      const p = { id: old ? old.id : uid(), name, pos: d.pos, attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
+      p.skill = ovr(p);
+      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos;
+      p.ratedAt = changed ? today() : (old.ratedAt || today());
+      const history = (old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: ovr(old) }] : []);
+      if (changed) { if (history.length && history[history.length - 1].date === p.ratedAt) history.pop(); history.push({ date: p.ratedAt, ovr: p.skill }); }
+      p.history = history.slice(-20);
       if (d.demo) p.demo = true;
       await store.putPlayer(p);
       const wasNew = state.editing === "new";
@@ -652,7 +752,13 @@ view.addEventListener("click", async (e) => {
       await store.delPlayer(id); toast("Spieler gelöscht"); render(); break;
     }
     case "demo": {
-      for (const [name, skill, pos] of DEMO) await store.putPlayer({ id: uid(), name, skill, pos, active: true, demo: true });
+      for (const [name, skill, pos] of DEMO) {
+        const attrs = {};
+        for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
+        const p = { id: uid(), name, pos, attrs, active: true, demo: true, ratedAt: today() };
+        p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
+        await store.putPlayer(p);
+      }
       toast("Beispielkader geladen"); state.tab = "spieltag"; render(); break;
     }
     case "clear-demo": {
