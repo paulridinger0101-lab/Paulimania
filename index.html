@@ -560,11 +560,16 @@ const store = {
     if (db) await dbWrite(db.collection("ratings").doc(state.myKey).set({ name: doc.name, claimedAt: doc.claimedAt, players: doc.players }));
     else this.saveLocal();
   },
-  saveCurrent: debounce(async () => {
-    if (db) await dbWrite(db.doc("meta/current").set(JSON.parse(JSON.stringify(state.current))));
-    else store.saveLocal();
-  }, 600),
+  // Matchday selection: local taps always win over older copies coming back from the store.
+  saveCurrent() { curSeq++; saveCurrentSoon(); },
 };
+let curSeq = 0, curSaved = 0;
+const saveCurrentSoon = debounce(async () => {
+  const seq = curSeq;
+  if (db) await dbWrite(db.doc("meta/current").set(JSON.parse(JSON.stringify(state.current))));
+  else store.saveLocal();
+  curSaved = Math.max(curSaved, seq);
+}, 400);
 async function dbWrite(p) {
   try { await p; } catch (e) { toast(e && e.code === "quota_exceeded" ? "Speicher voll: alte Spieltage löschen." : "Speichern fehlgeschlagen. Verbindung prüfen."); }
 }
@@ -610,7 +615,12 @@ async function initDb() {
     state.games = Object.fromEntries(s.docs.map(x => [x.id, { ...x.data(), id: x.id }])); done("games");
   }, () => done("games"));
   db.doc("meta/current").onSnapshot(s => {
-    if (s.exists && !s.metadata.hasPendingWrites) state.current = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(s.data())));
+    // ignore copies while this device still has unsaved or in-flight changes
+    if (s.exists && !s.metadata.hasPendingWrites && curSeq === curSaved) {
+      const next = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(s.data())));
+      if (JSON.stringify(next) === JSON.stringify(state.current) && state.loaded) return;
+      state.current = next;
+    }
     done("current");
   }, () => done("current"));
 }
