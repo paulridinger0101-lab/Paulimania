@@ -342,9 +342,42 @@ function normAttrs(a) {
   return out;
 }
 // Ratings: every organizer rates on their own; the app averages them per criterion.
+// state.ratings: key -> { name, claimedAt, players: { playerId: { attrs, date } } }
+// Shared mode: key = the organizer's account id, and the store only lets each
+// account write its own document. Local mode: key = the chosen name.
+const ORGA = ["Paul", "Louis", "Kevin", "Jonas"];
+const ME_KEY = "paulimania-me";
+function normRatingDoc(key, d) {
+  d = d || {};
+  if (d.name) return { name: d.name, claimedAt: d.claimedAt || "", players: d.players || {} };
+  // saved by an earlier version: keyed by name (or "local"), no claim
+  const players = d.players || (Object.values(d).every(v => v && typeof v === "object" && "attrs" in v) ? d : {});
+  return { name: ORGA.includes(key) ? key : "", claimedAt: "", players, legacy: true };
+}
+// Which account owns which name: the first one to pick it, unless the owner released it.
+function claims() {
+  const out = {};
+  const revoked = new Set(state.revoked || []);
+  const docs = Object.entries(state.ratings).filter(([k, r]) => r && !r.legacy && ORGA.includes(r.name) && !revoked.has(k + "@" + r.claimedAt));
+  docs.sort((a, b) => a[1].claimedAt.localeCompare(b[1].claimedAt));
+  for (const [k, r] of docs) if (!out[r.name]) out[r.name] = k;
+  return out;
+}
+function activeRaterKeys() {
+  if (state.mode !== "db") return Object.keys(state.ratings);
+  const c = claims(), keys = new Set(Object.values(c));
+  for (const [k, r] of Object.entries(state.ratings)) if (r.legacy && r.name && !c[r.name]) keys.add(k);
+  return [...keys];
+}
+function refreshMe() {
+  if (state.mode !== "db") return;
+  const c = claims();
+  state.myKey = state.userId;
+  state.me = Object.keys(c).find(n => c[n] === state.userId) || null;
+}
 function computeAvg() {
   const acc = {};
-  for (const [rid, map] of Object.entries(state.ratings)) for (const [pid, r] of Object.entries(map || {})) {
+  for (const rid of activeRaterKeys()) for (const [pid, r] of Object.entries((state.ratings[rid] || {}).players || {})) {
     if (!r || !r.attrs) continue;
     const e = acc[pid] || (acc[pid] = { sum: {}, cnt: {}, raters: [], last: "" });
     const at = normAttrs(r.attrs);
@@ -354,29 +387,47 @@ function computeAvg() {
   state.avg = {};
   for (const [pid, e] of Object.entries(acc)) state.avg[pid] = { attrs: Object.fromEntries(Object.keys(e.sum).map(k => [k, e.sum[k] / e.cnt[k]])), n: e.raters.length, raters: e.raters, last: e.last };
 }
-// The organizers. Each device remembers who is using it; ratings are stored per name.
-const ORGA = ["Paul", "Louis", "Kevin", "Jonas"];
-const ME_KEY = "paulimania-me";
-function myRating(pid) { return state.me ? (state.ratings[state.me] || {})[pid] || null : null; }
-function raterName(rid) { return rid === state.me ? "dir" : ORGA.includes(rid) ? rid : "einem Orga-Mitglied"; }
+function myDoc() { return state.myKey ? state.ratings[state.myKey] : null; }
+function myRating(pid) { return state.me ? ((myDoc() || {}).players || {})[pid] || null : null; }
+function raterName(rid) { return rid === state.myKey ? "dir" : (state.ratings[rid] && state.ratings[rid].name) || "einem Orga-Mitglied"; }
 function loadMe() { try { const v = localStorage.getItem(ME_KEY); return ORGA.includes(v) ? v : null; } catch (e) { return null; } }
 async function setMe(name) {
-  state.me = name;
-  try { localStorage.setItem(ME_KEY, name); } catch (e) {}
-  // Ratings saved before names existed (under an account id or "local") move to this name.
-  for (const oldId of [state.userId, "local", "shared"]) {
-    if (!oldId || oldId === name || !state.ratings[oldId]) continue;
-    if (!state.ratings[name] || !Object.keys(state.ratings[name]).length) {
-      const moved = state.ratings[oldId];
-      const rest = { ...state.ratings }; delete rest[oldId];
-      state.ratings = { ...rest, [name]: moved }; computeAvg();
-      await store.saveMine();
-      if (db) await dbWrite(db.collection("ratings").doc(oldId).delete()); else store.saveLocal();
-    }
+  if (state.mode === "db") {
+    if (!state.userId) { toast("Du bist nicht angemeldet. Öffne die App mit deinem Claude-Konto."); return render(); }
+    const c = claims();
+    if (state.me === name) return render();
+    if (state.me) { toast(`Dein Konto ist fest als ${state.me} verbunden. Ändern kann das nur der Besitzer der App.`); return render(); }
+    if (c[name] && c[name] !== state.userId) { toast(`${name} ist schon mit einem anderen Konto verbunden.`); return render(); }
+    const mine = state.ratings[state.userId];
+    let players = mine && !mine.legacy ? mine.players : {};
+    const legacyDoc = Object.values(state.ratings).find(r => r.legacy && r.name === name);
+    if (!Object.keys(players).length && legacyDoc) players = legacyDoc.players;
+    state.ratings = { ...state.ratings, [state.userId]: { name, claimedAt: new Date().toISOString(), players } };
+    refreshMe(); computeAvg();
+    await store.saveMine();
+    await migrateLegacy();
+    toast(`Hallo ${name}. Dein Name ist jetzt fest mit deinem Konto verbunden.`);
+    return render();
   }
+  // local mode: one device, free choice
+  state.me = name; state.myKey = name;
+  try { localStorage.setItem(ME_KEY, name); } catch (e) {}
+  if (!state.ratings[name]) {
+    const old = state.ratings.local;
+    state.ratings = { ...state.ratings, [name]: { name, claimedAt: "", players: old ? old.players : {} } };
+    if (old) { const r = { ...state.ratings }; delete r.local; state.ratings = r; }
+  }
+  computeAvg(); store.saveLocal();
   await migrateLegacy();
   toast(`Hallo ${name}. Deine Bewertungen werden unter deinem Namen gespeichert.`);
   render();
+}
+async function releaseClaim(key) {
+  const r = state.ratings[key]; if (!r) return;
+  const revoked = [...new Set([...(state.revoked || []), key + "@" + r.claimedAt])];
+  state.revoked = revoked; refreshMe(); computeAvg();
+  if (db) await dbWrite(db.doc("meta/orga").set({ revoked }));
+  toast(`${r.name} ist wieder frei.`); render();
 }
 function attrsOf(p) {
   const base = p.skill || 5, out = {};
@@ -442,7 +493,9 @@ const state = {
   loaded: false,
   ratings: {},   // raterId -> { playerId: { attrs, date } }
   avg: {},       // playerId -> { attrs, n, raters, last }
-  me: null,      // which organizer uses this device (Paul, Louis, Kevin, Jonas)
+  me: null,      // which organizer is using the app (Paul, Louis, Kevin, Jonas)
+  myKey: null,   // key of my ratings document (account id when shared, else the name)
+  revoked: [],   // released name bindings ("accountId@claimedAt")
   userId: null,  // account id, only to move ratings saved by an earlier version
   isOwner: true,
 };
@@ -479,7 +532,7 @@ const store = {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ players: state.players, games: state.games, current: state.current, ratings: state.ratings })); } catch (e) {}
   },
   loadLocal() {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: d.ratings || {}, current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
     computeAvg();
   },
   async putPlayer(p) { state.players[p.id] = p; if (db) await dbWrite(db.collection("players").doc(p.id).set(p)); else this.saveLocal(); },
@@ -487,21 +540,24 @@ const store = {
   async putGame(g) { state.games[g.id] = g; if (db) await dbWrite(db.collection("games").doc(g.id).set(g)); else this.saveLocal(); },
   async delGame(id) { delete state.games[id]; if (db) await dbWrite(db.collection("games").doc(id).delete()); else this.saveLocal(); },
   async putMyRatings(entries) { // entries: { playerId: attrs }
-    const mine = { ...(state.ratings[state.me] || {}) };
-    for (const [pid, attrs] of Object.entries(entries)) mine[pid] = { attrs, date: today() };
-    state.ratings = { ...state.ratings, [state.me]: mine }; computeAvg();
+    if (!state.me || !state.myKey) return;
+    const doc = myDoc() || { name: state.me, claimedAt: "", players: {} };
+    const players = { ...doc.players };
+    for (const [pid, attrs] of Object.entries(entries)) players[pid] = { attrs, date: today() };
+    state.ratings = { ...state.ratings, [state.myKey]: { ...doc, players } }; computeAvg();
     await this.saveMine();
   },
   async delMyRatings(pids) {
-    const mine = { ...(state.ratings[state.me] || {}) };
-    let hit = false; for (const pid of pids) if (mine[pid]) { delete mine[pid]; hit = true; }
+    const doc = myDoc(); if (!doc) return;
+    const players = { ...doc.players };
+    let hit = false; for (const pid of pids) if (players[pid]) { delete players[pid]; hit = true; }
     if (!hit) return;
-    state.ratings = { ...state.ratings, [state.me]: mine }; computeAvg();
+    state.ratings = { ...state.ratings, [state.myKey]: { ...doc, players } }; computeAvg();
     await this.saveMine();
   },
   async saveMine() {
-    if (!state.me) return;
-    if (db) await dbWrite(db.collection("ratings").doc(state.me).set({ players: state.ratings[state.me] || {} }));
+    const doc = myDoc(); if (!state.me || !doc) return;
+    if (db) await dbWrite(db.collection("ratings").doc(state.myKey).set({ name: doc.name, claimedAt: doc.claimedAt, players: doc.players }));
     else this.saveLocal();
   },
   saveCurrent: debounce(async () => {
@@ -520,28 +576,33 @@ async function initDb() {
   try { d = await window.claude.use("db"); } catch (e) { d = null; }
   if (!d) return;
   db = d; state.mode = "db";
-  state.ratings = {}; computeAvg();
+  state.ratings = {}; state.me = null; state.myKey = null; state.revoked = []; computeAvg();
   let u = null;
   try { u = await window.claude.use("user"); } catch (e) { u = null; }
   if (u) {
     try { state.userId = await u.id(); } catch (e) { state.userId = null; }
     try { state.isOwner = await u.isOwner(); } catch (e) { state.isOwner = false; }
   } else { state.isOwner = false; }
-  const seen = { players: false, games: false, current: false, ratings: false };
+  state.myKey = state.userId;
+  const seen = { players: false, games: false, current: false, ratings: false, orga: false };
   let migrated = false;
   const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); } }, 10000);
   const done = (k) => {
     seen[k] = true;
-    if (seen.players && seen.games && seen.current && seen.ratings) {
+    if (seen.players && seen.games && seen.current && seen.ratings && seen.orga) {
       state.loaded = true; clearTimeout(timer);
-      if (!migrated) { migrated = true; migrateLegacy(); }
+      if (!migrated) { migrated = true; migrateLegacy(); pruneMine(); }
     }
     render();
   };
   db.collection("ratings").onSnapshot(s => {
-    state.ratings = Object.fromEntries(s.docs.map(x => [x.id, (x.data() || {}).players || {}]));
-    computeAvg(); done("ratings");
+    state.ratings = Object.fromEntries(s.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
+    refreshMe(); computeAvg(); done("ratings");
   }, () => done("ratings"));
+  db.doc("meta/orga").onSnapshot(s => {
+    state.revoked = (s.exists && (s.data() || {}).revoked) || [];
+    refreshMe(); computeAvg(); done("orga");
+  }, () => done("orga"));
   db.collection("players").onSnapshot(s => {
     state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); done("players");
   }, () => done("players"));
@@ -554,6 +615,12 @@ async function initDb() {
   }, () => done("current"));
 }
 
+// Drop my ratings of players that were deleted (only my own document is mine to change).
+async function pruneMine() {
+  const doc = myDoc(); if (!doc || !state.me) return;
+  const gone = Object.keys(doc.players).filter(pid => !state.players[pid]);
+  if (gone.length) await store.delMyRatings(gone);
+}
 // Players rated before ratings were per person: their values become the owner's rating.
 async function migrateLegacy() {
   if (!state.isOwner || !state.me) return;
@@ -660,8 +727,20 @@ function statusOf(p, st, lg) {
 /* ---------- rendering ---------- */
 const view = document.getElementById("view");
 function whoPanel(text) {
+  const c = state.mode === "db" ? claims() : {};
   return `<section class="panel who"><h2>Wer bist du?</h2><p class="intro">${text}</p>
-    <div class="row">${ORGA.map(n => `<button class="btn" data-me="${n}">${n}</button>`).join("")}</div></section>`;
+    <div class="row">${ORGA.map(n => { const taken = c[n] && c[n] !== state.userId; return `<button class="btn" data-me="${n}" ${taken ? "disabled" : ""}>${n}${taken ? " (vergeben)" : ""}</button>`; }).join("")}</div></section>`;
+}
+// Owner only: who is bound to which name, and release a name picked by mistake.
+function orgaPanel() {
+  if (state.mode !== "db" || !state.isOwner) return "";
+  const c = claims();
+  return `<section class="panel"><details id="orgadet" ${state.orgaOpen ? "open" : ""}><summary>Orga-Team verwalten</summary>
+    <div style="display:grid;gap:8px;margin-top:12px">
+      <p class="hint" style="margin:0">Jeder Name gehört dem Konto, das ihn zuerst ausgewählt hat. Hat jemand den falschen Namen erwischt, gib ihn hier wieder frei. Seine Bewertungen zählen erst wieder, wenn er einen Namen neu auswählt.</p>
+      ${ORGA.map(n => `<div class="row spread"><span><b>${n}</b> <span class="muted small">${c[n] ? (c[n] === state.userId ? "verbunden (du)" : "verbunden") : "noch frei"}</span></span>
+        ${c[n] ? `<button class="btn small-btn danger" data-release="${c[n]}">${state.confirmRelease === c[n] ? "Wirklich freigeben?" : "Freigeben"}</button>` : ""}</div>`).join("")}
+    </div></details></section>`;
 }
 // Keep what was typed in the player form when the page redraws.
 function syncDraft() {
@@ -674,7 +753,17 @@ function render() {
   if (state.holding) { state.pendingRender = true; return; }
   syncDraft();
   const sel = document.getElementById("whoami");
-  if (sel) { if (sel.options.length === 1) ORGA.forEach(n => sel.add(new Option(n, n))); sel.value = state.me || ""; }
+  if (sel) {
+    if (sel.options.length === 1) ORGA.forEach(n => sel.add(new Option(n, n)));
+    const c = state.mode === "db" ? claims() : {};
+    for (const o of sel.options) if (o.value) {
+      const taken = c[o.value] && c[o.value] !== state.userId;
+      o.disabled = !!taken; o.textContent = o.value + (taken ? " (vergeben)" : "");
+    }
+    sel.value = state.me || "";
+    sel.disabled = state.mode === "db" && !!state.me;
+    sel.title = sel.disabled ? "Fest mit deinem Konto verbunden" : "";
+  }
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
   if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Spieler werden geladen …</p></div>`; return; }
   if (state.tab === "spieltag") renderMatchday();
@@ -809,7 +898,9 @@ function quickAdd(first) {
 function renderPlayers() {
   const players = playerList();
   let html = "";
-  if (!state.me) html += whoPanel("Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Dieses Gerät merkt sich das. Ändern kannst du es oben bei „Ich bin“.");
+  if (!state.me) html += whoPanel(state.mode === "db"
+    ? "Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Er wird fest mit deinem Claude-Konto verbunden, so kann niemand anderes in deinem Namen bewerten."
+    : "Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Dieses Gerät merkt sich das. Ändern kannst du es oben bei „Ich bin“.");
   if (state.editing) html += renderEditor();
   html += quickAdd(!players.length);
   const hasDemo = players.some(p => p.demo);
@@ -843,6 +934,7 @@ function renderPlayers() {
           <div class="row">${holdBtn(p.id)}<button class="btn small-btn" data-act="cancel-del">Abbrechen</button></div></div>` : ""}
       </div>`; }).join("") || `<p class="muted">Du hast alle Spieler bewertet.</p>`}</div>
   </section>`;
+  html += orgaPanel();
   html += renderBackup();
   view.innerHTML = html;
 }
@@ -1009,12 +1101,15 @@ async function deletePlayer(id) {
   cur.selected = cur.selected.filter(x => x !== id);
   if (cur.a) { cur.a = cur.a.filter(x => x !== id); cur.b = cur.b.filter(x => x !== id); }
   store.saveCurrent();
-  // remove every organizer's rating of this player
-  const touched = Object.keys(state.ratings).filter(rid => state.ratings[rid] && state.ratings[rid][id]);
-  for (const rid of touched) {
-    const m = { ...state.ratings[rid] }; delete m[id];
-    state.ratings = { ...state.ratings, [rid]: m };
-    if (db) await dbWrite(db.collection("ratings").doc(rid).set({ players: m }));
+  // Ratings of this player: my own go now; in shared mode every other organizer's
+  // copy is removed the next time they open the app (each may only change their own).
+  if (db) await store.delMyRatings([id]);
+  else {
+    for (const rid of Object.keys(state.ratings)) {
+      const r = state.ratings[rid]; if (!r.players[id]) continue;
+      const players = { ...r.players }; delete players[id];
+      state.ratings = { ...state.ratings, [rid]: { ...r, players } };
+    }
   }
   computeAvg();
   await store.delPlayer(id);
@@ -1037,10 +1132,14 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
+  if (t.dataset.release) {
+    if (state.confirmRelease !== t.dataset.release) { state.confirmRelease = t.dataset.release; return render(); }
+    state.confirmRelease = null; await releaseClaim(t.dataset.release); return;
+  }
   if (t.dataset.delrow) { state.confirmRow = t.dataset.delrow; return render(); }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
@@ -1231,8 +1330,9 @@ document.querySelector("nav.tabs").addEventListener("click", (e) => {
   state.tab = b.dataset.tab; state.editing = null; state.draft = null; render();
 });
 
+view.addEventListener("toggle", (e) => { if (e.target.id === "orgadet") state.orgaOpen = e.target.open; }, true);
 document.getElementById("whoami").addEventListener("change", (e) => { if (e.target.value) setMe(e.target.value); });
-state.me = loadMe();
+state.me = loadMe(); state.myKey = state.me;
 store.loadLocal();
 migrateLegacy();
 render();
