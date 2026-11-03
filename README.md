@@ -10,12 +10,12 @@ Orga-Tool für den Montagskick (11 gegen 11).
 - **WhatsApp-Text:** Die Teams werden als Text kopiert, ohne Stärkewerte.
 - **Statistik:** Gespeicherte Spieltage mit Ergebnis. Pro Spieler steht dort, wie oft er gespielt hat, wann zuletzt, und wie seine Bilanz aussieht (Siege-Unentschieden-Niederlagen). Außerdem ein Status: Vorrecht, Ersatz oder länger weg.
 
-- **Mehrere Bewerter:** Jeder aus dem Orga-Team bewertet die Spieler selbst. Für die Teams zählt der Durchschnitt pro Kriterium. Sichtbar sind nur der Durchschnitt und wer schon bewertet hat, nicht die einzelnen Werte. Name und Positionen sind gemeinsam.
+- **Mehrere Bewerter:** Jeder aus dem Orga-Team bewertet die Spieler selbst. Für die Teams zählt der Durchschnitt pro Kriterium. Oben bei „Ich bin“ wählt jedes Orga-Mitglied einmal seinen Namen (Paul, Louis, Kevin, Jonas), das Gerät merkt ihn sich. Sichtbar sind nur der Durchschnitt und wer schon bewertet hat, nicht die einzelnen Werte. Name und Positionen sind gemeinsam.
 
 ## Benutzen
 
 `index.html` im Browser öffnen. Lokal liegen die Daten im Browser (localStorage). Über „Sicherung kopieren / einfügen“ im Kader lassen sie sich auf ein anderes Gerät übertragen.
-Als claude.ai-Artifact veröffentlicht, nutzt die App einen gemeinsamen Speicher. Dann sind die Daten auf allen Geräten gleich. Orga-Mitglieder werden über das Teilen-Menü als Editor eingeladen, und jeder hat dann ein eigenes Bewertungsdokument (`ratings/<id>`).
+Als claude.ai-Artifact veröffentlicht, nutzt die App einen gemeinsamen Speicher. Dann sind die Daten auf allen Geräten gleich. Orga-Mitglieder werden über das Teilen-Menü als Editor eingeladen, Die Bewertungen liegen pro Name in `ratings/<Name>`.
 
 ## Nächste Phasen (Ideen)
 

@@ -76,6 +76,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   margin: 0; text-transform: uppercase; line-height: 1;
 }
 .brand span { font-size: 14px; opacity: .8; }
+.whoami { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.whoami span { opacity: .8; }
+.whoami select { background: color-mix(in srgb, var(--pitch-ink) 14%, transparent); color: var(--pitch-ink); border: 1px solid color-mix(in srgb, var(--pitch-ink) 35%, transparent); border-radius: 8px; padding: 5px 8px; font-weight: 600; }
+.whoami select option { color: var(--ink); background: var(--surface); }
+.panel.who { border-color: var(--accent); }
 nav.tabs { display: flex; gap: 4px; margin-top: 14px; overflow-x: auto; }
 nav.tabs button {
   border: 0; background: transparent; color: var(--pitch-ink); opacity: .75;
@@ -249,7 +254,8 @@ details summary { cursor: pointer; font-weight: 600; }
 
 <div class="band">
   <div class="wrap">
-    <div class="brand"><h1>Paulimania</h1><span>Montagskick · 11 gegen 11</span></div>
+    <div class="brand"><h1>Paulimania</h1><span>Montagskick · 11 gegen 11</span>
+      <label class="whoami"><span>Ich bin</span><select id="whoami" aria-label="Wer benutzt dieses Gerät?"><option value="">auswählen</option></select></label></div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="spieler" aria-selected="false">Spieler</button>
       <button role="tab" data-tab="spieltag" aria-selected="true">Spieltag</button>
@@ -339,8 +345,30 @@ function computeAvg() {
   state.avg = {};
   for (const [pid, e] of Object.entries(acc)) state.avg[pid] = { attrs: Object.fromEntries(Object.keys(e.sum).map(k => [k, e.sum[k] / e.cnt[k]])), n: e.raters.length, raters: e.raters, last: e.last };
 }
-function myRating(pid) { return (state.ratings[state.me] || {})[pid] || null; }
-function raterName(rid) { return rid === state.me ? "dir" : state.names[rid] || "einem Orga-Mitglied"; }
+// The organizers. Each device remembers who is using it; ratings are stored per name.
+const ORGA = ["Paul", "Louis", "Kevin", "Jonas"];
+const ME_KEY = "paulimania-me";
+function myRating(pid) { return state.me ? (state.ratings[state.me] || {})[pid] || null : null; }
+function raterName(rid) { return rid === state.me ? "dir" : ORGA.includes(rid) ? rid : "einem Orga-Mitglied"; }
+function loadMe() { try { const v = localStorage.getItem(ME_KEY); return ORGA.includes(v) ? v : null; } catch (e) { return null; } }
+async function setMe(name) {
+  state.me = name;
+  try { localStorage.setItem(ME_KEY, name); } catch (e) {}
+  // Ratings saved before names existed (under an account id or "local") move to this name.
+  for (const oldId of [state.userId, "local", "shared"]) {
+    if (!oldId || oldId === name || !state.ratings[oldId]) continue;
+    if (!state.ratings[name] || !Object.keys(state.ratings[name]).length) {
+      const moved = state.ratings[oldId];
+      const rest = { ...state.ratings }; delete rest[oldId];
+      state.ratings = { ...rest, [name]: moved }; computeAvg();
+      await store.saveMine();
+      if (db) await dbWrite(db.collection("ratings").doc(oldId).delete()); else store.saveLocal();
+    }
+  }
+  await migrateLegacy();
+  toast(`Hallo ${name}. Deine Bewertungen werden unter deinem Namen gespeichert.`);
+  render();
+}
 function attrsOf(p) {
   const base = p.skill || 5, out = {};
   const avg = !p.__draft && p.id && state.avg[p.id];
@@ -403,9 +431,9 @@ const state = {
   loaded: false,
   ratings: {},   // raterId -> { playerId: { attrs, date } }
   avg: {},       // playerId -> { attrs, n, raters, last }
-  me: "local",   // this organizer's rater id
+  me: null,      // which organizer uses this device (Paul, Louis, Kevin, Jonas)
+  userId: null,  // account id, only to move ratings saved by an earlier version
   isOwner: true,
-  names: {},     // raterId -> display name (resolved live, never stored)
 };
 
 /* ---------- helpers ---------- */
@@ -461,6 +489,7 @@ const store = {
     await this.saveMine();
   },
   async saveMine() {
+    if (!state.me) return;
     if (db) await dbWrite(db.collection("ratings").doc(state.me).set({ players: state.ratings[state.me] || {} }));
     else this.saveLocal();
   },
@@ -483,11 +512,10 @@ async function initDb() {
   state.ratings = {}; computeAvg();
   let u = null;
   try { u = await window.claude.use("user"); } catch (e) { u = null; }
-  state.user = u;
   if (u) {
-    try { state.me = (await u.id()) || "shared"; } catch (e) { state.me = "shared"; }
+    try { state.userId = await u.id(); } catch (e) { state.userId = null; }
     try { state.isOwner = await u.isOwner(); } catch (e) { state.isOwner = false; }
-  } else { state.me = "shared"; state.isOwner = false; }
+  } else { state.isOwner = false; }
   const seen = { players: false, games: false, current: false, ratings: false };
   let migrated = false;
   const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); } }, 10000);
@@ -501,7 +529,7 @@ async function initDb() {
   };
   db.collection("ratings").onSnapshot(s => {
     state.ratings = Object.fromEntries(s.docs.map(x => [x.id, (x.data() || {}).players || {}]));
-    computeAvg(); resolveNames(); done("ratings");
+    computeAvg(); done("ratings");
   }, () => done("ratings"));
   db.collection("players").onSnapshot(s => {
     state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); done("players");
@@ -515,19 +543,9 @@ async function initDb() {
   }, () => done("current"));
 }
 
-function resolveNames() {
-  const u = state.user;
-  const ids = Object.keys(state.ratings).filter(id => id !== state.me && id !== "shared");
-  if (!u || !ids.length) return;
-  u.profiles(ids).then(ps => {
-    let changed = false;
-    for (const id of ids) { const n = (ps && ps[id] && ps[id].name) || ""; if (state.names[id] !== n) { state.names[id] = n; changed = true; } }
-    if (changed) render();
-  }).catch(() => {});
-}
 // Players rated before ratings were per person: their values become the owner's rating.
 async function migrateLegacy() {
-  if (!state.isOwner) return;
+  if (!state.isOwner || !state.me) return;
   const add = {};
   for (const p of Object.values(state.players)) if (p.attrs && !state.avg[p.id]) add[p.id] = attrsOf({ ...p, __draft: true });
   if (Object.keys(add).length) await store.putMyRatings(add);
@@ -630,7 +648,21 @@ function statusOf(p, st, lg) {
 
 /* ---------- rendering ---------- */
 const view = document.getElementById("view");
+function whoPanel(text) {
+  return `<section class="panel who"><h2>Wer bist du?</h2><p class="intro">${text}</p>
+    <div class="row">${ORGA.map(n => `<button class="btn" data-me="${n}">${n}</button>`).join("")}</div></section>`;
+}
+// Keep what was typed in the player form when the page redraws.
+function syncDraft() {
+  if (!state.draft) return;
+  const n = document.getElementById("pname"), a = document.getElementById("pactive");
+  if (n) state.draft.name = n.value;
+  if (a) state.draft.active = a.checked;
+}
 function render() {
+  syncDraft();
+  const sel = document.getElementById("whoami");
+  if (sel) { if (sel.options.length === 1) ORGA.forEach(n => sel.add(new Option(n, n))); sel.value = state.me || ""; }
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
   if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Spieler werden geladen …</p></div>`; return; }
   if (state.tab === "spieltag") renderMatchday();
@@ -753,6 +785,7 @@ function renderPlayers() {
   const players = playerList();
   if (!players.length && !state.editing) { view.innerHTML = emptySquad("spieler"); return; }
   let html = "";
+  if (!state.me) html += whoPanel("Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Dieses Gerät merkt sich das. Ändern kannst du es oben bei „Ich bin“.");
   if (state.editing) html += renderEditor();
   const hasDemo = players.some(p => p.demo);
   const unrated = players.filter(p => !myRating(p.id)).length;
@@ -761,12 +794,12 @@ function renderPlayers() {
       <div class="row">${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}
       <button class="btn primary" data-act="goto-new">Spieler hinzufügen</button></div></div>
     ${intro("Hier legst du alle Spieler einmal an. Jeder aus dem Orga-Team bewertet selbst, die App rechnet den Durchschnitt. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
-    <div class="row small"><span class="chip ${unrated ? "warn" : ""}">${unrated ? `Du hast ${players.length - unrated} von ${players.length} bewertet` : "Du hast alle bewertet"}</span></div>
+    ${state.me ? `<div class="row small"><span class="chip ${unrated ? "warn" : ""}">${unrated ? `${state.me}, du hast ${players.length - unrated} von ${players.length} bewertet` : `${state.me}, du hast alle bewertet`}</span></div>` : ""}
     <div class="plrows">${players.map(p => { const tr = trend(p); const alt = altOf(p); return `
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}<span>Ø aus ${state.avg[p.id] ? state.avg[p.id].n : 0}</span>${!myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
+          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}<span>Ø aus ${state.avg[p.id] ? state.avg[p.id].n : 0}</span>${state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
         <div class="plscore"><b>${f1(ovr(p))}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button>
@@ -792,7 +825,8 @@ function renderEditor() {
   const preview = ovr(d);
   const others = avg ? avg.raters.filter(r => r !== state.me) : [];
   const avgLine = avg ? `Durchschnitt aus ${avg.n} Bewertung${avg.n === 1 ? "" : "en"}: <b>${f1(ovr(p))}</b> · bewertet von ${avg.raters.map(raterName).join(", ")}` : "";
-  const myNote = isNew ? "Deine Bewertung ist die erste. Die anderen aus dem Orga-Team können ihn danach selbst bewerten."
+  const myNote = !state.me ? "Wähle zuerst oben bei „Ich bin“ deinen Namen, sonst kann deine Bewertung nicht gespeichert werden."
+    : isNew ? "Deine Bewertung ist die erste. Die anderen aus dem Orga-Team können ihn danach selbst bewerten."
     : mine ? "Das ist deine eigene Bewertung. Die anderen sehen nur den Durchschnitt, nicht deine einzelnen Werte."
     : `Du hast ${esc(p.name)} noch nicht bewertet. Die Werte sind mit dem aktuellen Durchschnitt vorbelegt. Deine Bewertung zählt erst, wenn du etwas änderst und speicherst.`;
   return `<section class="panel" id="editor">
@@ -808,7 +842,7 @@ function renderEditor() {
         ${posPicker("dpos2", d.pos2, d.pos)}
         <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
-    <div class="mynote ${!mine && !isNew ? "warn" : ""}"><b>Deine Bewertung.</b> ${myNote}</div>
+    <div class="mynote ${(!mine && !isNew) || !state.me ? "warn" : ""}"><b>${state.me ? `Deine Bewertung, ${state.me}.` : "Deine Bewertung."}</b> ${myNote}</div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel. Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
     <div class="attrs">${ATTRS.map(a => `
       <div class="attr ${a.k === "tor" && d.pos !== "TW" ? "dim" : ""}">
@@ -903,9 +937,10 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
+  if (t.dataset.me) { await setMe(t.dataset.me); return; }
   if (t.dataset.swap) {
     const id = t.dataset.swap;
     if (!state.swapSel) state.swapSel = id;
@@ -946,6 +981,7 @@ view.addEventListener("click", async (e) => {
       if (!name) { toast("Bitte einen Namen eingeben."); return; }
       const d = state.draft;
       const old = state.editing === "new" ? null : P(state.editing);
+      if (!state.me && (!old || d.touched)) { toast("Wähle zuerst oben bei „Ich bin“ deinen Namen."); return; }
       const id = old ? old.id : uid();
       const before = old ? ovr(old) : null;
       // my own rating (only if new, already rated by me, or I changed a value)
@@ -977,6 +1013,7 @@ view.addEventListener("click", async (e) => {
       await store.delPlayer(id); toast("Spieler gelöscht"); render(); break;
     }
     case "demo": {
+      if (!state.me) { state.tab = "spieler"; render(); toast("Wähle zuerst, wer du bist."); return; }
       const ratings = {};
       for (const [name, skill, pos] of DEMO) {
         const attrs = {};
@@ -1067,6 +1104,8 @@ document.querySelector("nav.tabs").addEventListener("click", (e) => {
   state.tab = b.dataset.tab; state.editing = null; state.draft = null; render();
 });
 
+document.getElementById("whoami").addEventListener("change", (e) => { if (e.target.value) setMe(e.target.value); });
+state.me = loadMe();
 store.loadLocal();
 migrateLegacy();
 render();
