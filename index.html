@@ -286,8 +286,9 @@ function normPlayer(p) {
   const q = { ...p };
   if (LEGACY_POS[q.pos]) q.pos = LEGACY_POS[q.pos];
   if (!POS[q.pos]) q.pos = "ZM";
-  if (LEGACY_POS[q.pos2]) q.pos2 = LEGACY_POS[q.pos2];
-  if (q.pos2 && (!POS[q.pos2] || q.pos2 === q.pos)) q.pos2 = "";
+  // secondary positions: list (older saves had a single string)
+  const alt = Array.isArray(q.pos2) ? q.pos2 : q.pos2 ? [q.pos2] : [];
+  q.pos2 = [...new Set(alt.map(x => LEGACY_POS[x] || x))].filter(x => POS[x] && x !== q.pos).sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
   return q;
 }
 function normAll(players) { return Object.fromEntries(Object.entries(players || {}).map(([k, v]) => [k, normPlayer(v)])); }
@@ -330,11 +331,29 @@ function ovr(p) {
 }
 function posPicker(attr, val, exclude) {
   const rows = LINE_ORDER.map(line => `<div class="posline"><span class="posline-l">${LINES[line]}</span><div class="seg">${
-    POSITIONS.filter(x => x.line === line).map(x => `<button data-${attr}="${x.k}" aria-pressed="${val === x.k}" title="${x.name}" ${x.k === exclude ? "disabled" : ""}>${x.k}</button>`).join("")}</div></div>`).join("");
-  const none = exclude !== null ? `<div class="posline"><span class="posline-l"></span><div class="seg"><button data-${attr}="" aria-pressed="${!val}">Keine</button></div></div>` : "";
+    POSITIONS.filter(x => x.line === line).map(x => `<button data-${attr}="${x.k}" aria-pressed="${Array.isArray(val) ? val.includes(x.k) : val === x.k}" title="${x.name}" ${x.k === exclude ? "disabled" : ""}>${x.k}</button>`).join("")}</div></div>`).join("");
+  const none = exclude !== null ? `<div class="posline"><span class="posline-l"></span><div class="seg"><button data-${attr}="" aria-pressed="${!val || !val.length}">Keine</button></div></div>` : "";
   return `<div class="pospick">${none}${rows}</div>`;
 }
-function posHtml(p) { return `<span class="pos">${p.pos}${p.pos2 ? `<small>/${p.pos2}</small>` : ""}</span>`; }
+function altOf(p) { return Array.isArray(p?.pos2) ? p.pos2 : p?.pos2 ? [p.pos2] : []; }
+function altShort(p) { const a = altOf(p); return a.length > 2 ? `${a.slice(0, 2).join("/")} +${a.length - 2}` : a.join("/"); }
+function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
+// How much a player covers each position: main 1, "can go in goal" 0.5,
+// other secondary positions share 0.5 between them.
+function coverage(p) {
+  const c = {}; if (!p) return c;
+  c[p.pos] = 1;
+  const alt = altOf(p), field = alt.filter(x => x !== "TW");
+  if (alt.includes("TW")) c.TW = Math.max(c.TW || 0, 0.5);
+  for (const x of field) c[x] = (c[x] || 0) + 0.5 / field.length;
+  return c;
+}
+function lineCoverage(p) {
+  const c = {}; if (!p) return c;
+  c[LINE_OF[p.pos]] = 1;
+  for (const [k, v] of Object.entries(coverage(p))) { const l = LINE_OF[k]; if (l !== LINE_OF[p.pos]) c[l] = Math.min(0.5, (c[l] || 0) + v); }
+  return c;
+}
 function f1(n) { return (Math.round(n * 10) / 10).toFixed(1).replace(".", ","); }
 function today() { return new Date().toISOString().slice(0, 10); }
 const TARGET = 22;
@@ -429,7 +448,7 @@ function makeScorer(ids) {
   const lastTeam = {};
   if (lg) { lg.a.forEach(id => lastTeam[id] = "a"); lg.b.forEach(id => lastTeam[id] = "b"); }
   const cache = {};
-  for (const id of ids) { const p = P(id); cache[id] = { o: ovr(p), at: attrsOf(p || {}) }; }
+  for (const id of ids) { const p = P(id); cache[id] = { o: ovr(p), at: attrsOf(p || {}), cov: coverage(p), lcov: lineCoverage(p) }; }
   return (a, b) => {
     const sum = t => t.reduce((s, id) => s + cache[id].o, 0);
     let cost = Math.abs(sum(a) - sum(b)) * 3;
@@ -439,10 +458,10 @@ function makeScorer(ids) {
       cost += Math.abs(sa - sb) * 0.25;
     }
     // position coverage: main position counts 1, secondary position 0.5
-    const cov = (t, pos) => t.reduce((s, id) => { const p = P(id); return s + (p?.pos === pos ? 1 : p?.pos2 === pos ? 0.5 : 0); }, 0);
+    const cov = (t, pos) => t.reduce((s, id) => s + (cache[id].cov[pos] || 0), 0);
     for (const pos of POS_ORDER) cost += Math.abs(cov(a, pos) - cov(b, pos)) * (pos === "TW" ? 12 : 0.6);
     // and per line (Abwehr, Mittelfeld, Sturm)
-    const covL = (t, line) => t.reduce((s, id) => { const p = P(id); return s + (LINE_OF[p?.pos] === line ? 1 : LINE_OF[p?.pos2] === line ? 0.5 : 0); }, 0);
+    const covL = (t, line) => t.reduce((s, id) => s + (cache[id].lcov[line] || 0), 0);
     for (const line of LINE_ORDER) if (line !== "TW") cost += Math.abs(covL(a, line) - covL(b, line)) * 2;
     const together = t => { let n = 0; for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const x = lastTeam[t[i]], y = lastTeam[t[j]]; if (x && x === y) n++; } return n; };
     cost += (together(a) + together(b)) * 0.15;
@@ -553,7 +572,7 @@ function renderMatchday() {
   ].filter(g => g[1].length);
   const pct = Math.min(100, (n / TARGET) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
-  const gk2 = [...sel].filter(id => P(id)?.pos2 === "TW").length;
+  const gk2 = [...sel].filter(id => altOf(P(id)).includes("TW")).length;
 
   let html = `
   <section class="panel">
@@ -650,7 +669,7 @@ function renderSquad() {
         <tr>
           <td><button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button></td>
           <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}${p.demo ? ` <span class="chip plain">Beispiel</span>` : ""}</td>
-          <td>${p.pos}${p.pos2 ? ` <span class="muted">/ ${p.pos2}</span>` : ""}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
+          <td>${p.pos}${altOf(p).length ? ` <span class="muted">/ ${altOf(p).join(", ")}</span>` : ""}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
           <td><span class="chip ${s.cls}">${s.label}</span></td>
           <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("") || `<span class="muted small">–</span>`}</span></td>
           <td class="num">${st.total}</td>
@@ -666,9 +685,9 @@ function renderSquad() {
 
 function renderEditor() {
   const isNew = state.editing === "new";
-  const p = isNew ? { name: "", pos: "MIT", active: true, attrs: Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
+  const p = isNew ? { name: "", pos: "ZM", pos2: [], active: true, attrs: Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
   if (!p) { state.editing = null; return ""; }
-  const d = state.draft || (state.draft = { ...p, attrs: attrsOf(p) });
+  const d = state.draft || (state.draft = { ...p, pos2: altOf(p).slice(), attrs: attrsOf(p) });
   const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
   const hist = (p.history || []).slice(-6);
   const preview = ovr(d);
@@ -680,9 +699,9 @@ function renderEditor() {
     </div>
     <div class="posgrid">
       <div class="field"><label>Hauptposition: <span class="posname">${d.pos} · ${POS[d.pos]}</span></label>${posPicker("dpos", d.pos, null)}</div>
-      <div class="field"><label>Nebenposition: <span class="posname">${d.pos2 ? `${d.pos2} · ${POS[d.pos2]}` : "keine"}</span></label>
+      <div class="field"><label>Nebenpositionen: <span class="posname">${d.pos2.length ? d.pos2.join(", ") : "keine"}</span></label>
         ${posPicker("dpos2", d.pos2, d.pos)}
-        <span class="hint">Wo kann er auch spielen? Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
+        <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel. Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
     <div class="attrs">${ATTRS.map(a => `
@@ -779,8 +798,11 @@ view.addEventListener("click", async (e) => {
   if (t.dataset.dpos || t.dataset.dattr || t.dataset.dpos2 !== undefined) {
     const d = state.draft;
     d.name = document.getElementById("pname").value; d.active = document.getElementById("pactive").checked;
-    if (t.dataset.dpos2 !== undefined) d.pos2 = t.dataset.dpos2;
-    else if (t.dataset.dpos) { d.pos = t.dataset.dpos; if (d.pos2 === d.pos) d.pos2 = ""; }
+    if (t.dataset.dpos2 !== undefined) {
+      const k = t.dataset.dpos2;
+      d.pos2 = !k ? [] : d.pos2.includes(k) ? d.pos2.filter(x => x !== k) : [...d.pos2, k].sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
+    }
+    else if (t.dataset.dpos) { d.pos = t.dataset.dpos; d.pos2 = d.pos2.filter(x => x !== d.pos); }
     else d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v };
     const y = window.scrollY; render(); window.scrollTo(0, y); return;
   }
@@ -798,9 +820,9 @@ view.addEventListener("click", async (e) => {
       if (!name) { toast("Bitte einen Namen eingeben."); return; }
       const d = state.draft;
       const old = state.editing === "new" ? null : P(state.editing);
-      const p = { id: old ? old.id : uid(), name, pos: d.pos, pos2: d.pos2 && d.pos2 !== d.pos ? d.pos2 : "", attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
+      const p = { id: old ? old.id : uid(), name, pos: d.pos, pos2: d.pos2.filter(x => x !== d.pos), attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
       p.skill = ovr(p);
-      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos || (old.pos2 || "") !== p.pos2;
+      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos || JSON.stringify(altOf(old)) !== JSON.stringify(p.pos2);
       p.ratedAt = changed ? today() : (old.ratedAt || today());
       const history = (old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: ovr(old) }] : []);
       if (changed) { if (history.length && history[history.length - 1].date === p.ratedAt) history.pop(); history.push({ date: p.ratedAt, ovr: p.skill }); }
@@ -824,7 +846,7 @@ view.addEventListener("click", async (e) => {
         const attrs = {};
         for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : a.k === "cha" ? 3 + Math.floor(Math.random() * 7) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
         const others = POS_ORDER.filter(k => k !== pos && LINE_OF[k] === LINE_OF[pos] && k !== "TW");
-        const pos2 = name === "Tim" ? "TW" : (Math.random() < 0.5 && others.length ? others[Math.floor(Math.random() * others.length)] : "");
+        const pos2 = name === "Tim" ? ["TW", "LV"] : shuffle(others).slice(0, Math.floor(Math.random() * 3)).sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
         const p = { id: uid(), name, pos, pos2, attrs, active: true, demo: true, ratedAt: today() };
         p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
         await store.putPlayer(p);
