@@ -226,6 +226,7 @@ tr.click:hover td { background: var(--bg); }
 .plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
 .mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
 .mynote.warn { background: var(--warn-soft); }
 .small-btn { padding: 5px 10px; font-size: 13px; }
@@ -329,9 +330,28 @@ const ATTRS = [
   { k: "zwh", name: "Härte", short: "Härte", hint: "Körpereinsatz, Robustheit", w: 0.6 },
   { k: "abs", name: "Abschluss", short: "Abschl.", hint: "Torgefahr und Schusstechnik", w: 0.9 },
   { k: "erf", name: "Erfahrung & Sicherheit", short: "Erfahr.", hint: "Ruhe am Ball, macht wenig Fehler", w: 0.8 },
-  { k: "tor", name: "Torwartspiel", short: "Torwart", hint: "Reflexe, Fangen, Strafraum. Bei Feldspielern: taugt er als Ersatz-Torwart?", w: 0 },
+  { k: "tor", name: "Torwartspiel", short: "Torwart", hint: "Kann er notfalls ins Tor? (Hilft, wenn ein Torwart fehlt)", w: 0 },
   { k: "cha", name: "Charakter", short: "Charakter", hint: "Wie umgänglich ist er? Fair, ruhig, motiviert die anderen (hoch) oder meckert, provoziert, wird schnell laut (niedrig)", w: 0, bal: true },
 ];
+// Criteria for goalkeepers (shown instead of the field criteria when the main position is TW).
+const GK_ATTRS = [
+  { k: "gre", name: "Reflexe", short: "Reflexe", hint: "Reagiert er schnell auf Schüsse aus kurzer Distanz?", w: 1.3 },
+  { k: "gst", name: "Stellungsspiel", short: "Stellung", hint: "Steht er richtig, verkürzt er den Winkel?", w: 1.3 },
+  { k: "gfa", name: "Fangsicherheit", short: "Fangen", hint: "Hält er die Bälle fest oder lässt er sie abprallen?", w: 1.1 },
+  { k: "g11", name: "Eins gegen Eins", short: "1 gg. 1", hint: "Wie verhält er sich, wenn ein Stürmer allein aufs Tor zuläuft?", w: 1.1 },
+  { k: "gsr", name: "Strafraumbeherrschung", short: "Strafraum", hint: "Fängt er Flanken ab, kommt er im richtigen Moment raus?", w: 1.0 },
+  { k: "gsp", name: "Sprungkraft & Beweglichkeit", short: "Sprung", hint: "Kommt er an Bälle in den Ecken, ist er schnell am Boden?", w: 0.9 },
+  { k: "gmu", name: "Mut", short: "Mut", hint: "Wirft er sich in die Bälle und in die Beine der Stürmer?", w: 0.8 },
+  { k: "gko", name: "Konzentration & Nerven", short: "Nerven", hint: "Bleibt er ruhig, macht er wenig Patzer, auch nach einem Gegentor?", w: 0.8 },
+  { k: "gab", name: "Abwurf & Abschlag", short: "Abwurf", hint: "Kommen Abwürfe und Abstöße beim eigenen Mann an?", w: 0.8 },
+  { k: "gfu", name: "Fußspiel", short: "Fußspiel", hint: "Kann er Rückpässe sicher annehmen und mitspielen?", w: 0.7 },
+  { k: "gkm", name: "Kommunikation", short: "Coaching", hint: "Dirigiert er die Abwehr, ist er laut und klar?", w: 0.7 },
+  { k: "cha", name: "Charakter", short: "Charakter", hint: "Wie umgänglich ist er? Fair, ruhig, motiviert die anderen (hoch) oder meckert, provoziert, wird schnell laut (niedrig)", w: 0, bal: true },
+];
+const GK_SCORE = GK_ATTRS.filter(a => a.w > 0);
+const ALL_ATTRS = [...ATTRS, ...GK_ATTRS.filter(g => !ATTRS.some(a => a.k === g.k))];
+function isGK(p) { return !!p && p.pos === "TW"; }
+function attrSet(pos) { return pos === "TW" ? GK_ATTRS : ATTRS; }
 const FIELD_ATTRS = ATTRS.filter(a => a.w > 0);
 // Criteria spread evenly across both teams (Charakter doesn't count toward strength but is balanced too)
 const BAL_ATTRS = ATTRS.filter(a => a.w > 0 || a.bal);
@@ -397,7 +417,7 @@ function computeAvg() {
     if (orgaByPid[pid] && orgaByPid[pid] === (state.ratings[rid] || {}).name) continue; // own rating of himself never counts
     const e = acc[pid] || (acc[pid] = { sum: {}, cnt: {}, raters: [], last: "" });
     const at = normAttrs(r.attrs);
-    for (const a of ATTRS) if (at[a.k]) { e.sum[a.k] = (e.sum[a.k] || 0) + at[a.k]; e.cnt[a.k] = (e.cnt[a.k] || 0) + 1; }
+    for (const a of ALL_ATTRS) if (at[a.k]) { e.sum[a.k] = (e.sum[a.k] || 0) + at[a.k]; e.cnt[a.k] = (e.cnt[a.k] || 0) + 1; }
     e.raters.push(rid); if ((r.date || "") > e.last) e.last = r.date || "";
   }
   state.avg = {};
@@ -449,8 +469,10 @@ function attrsOf(p) {
   const base = p.skill || 5, out = {};
   const avg = !p.__draft && p.id && state.avg[p.id];
   const old = normAttrs(avg ? avg.attrs : p.attrs);
-  for (const a of ATTRS) {
+  for (const a of ALL_ATTRS) {
     let v = old[a.k];
+    // keepers rated before they had own criteria: use their old "Torwartspiel" value
+    if (!v && a.k[0] === "g" && GK_ATTRS.some(g => g.k === a.k)) v = old.tor || base;
     if (!v) v = a.k === "tor" ? (p.pos === "TW" ? base : 2) : a.k === "cha" ? 5 : base;
     out[a.k] = v;
   }
@@ -460,9 +482,8 @@ function attrsOf(p) {
 function ovr(p) {
   if (!p) return 5;
   const at = attrsOf(p);
-  const wsum = FIELD_ATTRS.reduce((s, a) => s + a.w, 0);
-  const field = FIELD_ATTRS.reduce((s, a) => s + a.w * at[a.k], 0) / wsum;
-  const v = p.pos === "TW" ? 0.65 * at.tor + 0.35 * field : field;
+  const set = p.pos === "TW" ? GK_SCORE : FIELD_ATTRS;
+  const v = set.reduce((s, a) => s + a.w * at[a.k], 0) / set.reduce((s, a) => s + a.w, 0);
   return Math.round(v * 10) / 10;
 }
 function posPicker(attr, val, exclude) {
@@ -543,7 +564,9 @@ function fmtDate(iso) {
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function sortedGames() { return Object.values(state.games).sort((x, y) => y.date.localeCompare(x.date)); }
 function lastGame() { return sortedGames()[0] || null; }
-function playerList() { return Object.values(state.players).sort((x, y) => x.name.localeCompare(y.name, "de")); }
+// Alphabetical by surname (last word of the name), then by full name.
+function surname(p) { const parts = (p.name || "").trim().split(/\s+/); return parts[parts.length - 1] || ""; }
+function playerList() { return Object.values(state.players).sort((x, y) => surname(x).localeCompare(surname(y), "de", { sensitivity: "base" }) || x.name.localeCompare(y.name, "de")); }
 function P(id) { return state.players[id]; }
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -673,13 +696,14 @@ function makeScorer(ids) {
   const lastTeam = {};
   if (lg) { lg.a.forEach(id => lastTeam[id] = "a"); lg.b.forEach(id => lastTeam[id] = "b"); }
   const cache = {};
-  for (const id of ids) { const p = P(id); cache[id] = { o: ovr(p), at: attrsOf(p || {}), cov: coverage(p), lcov: lineCoverage(p) }; }
+  for (const id of ids) { const p = P(id); cache[id] = { o: ovr(p), at: attrsOf(p || {}), gk: isGK(p), cov: coverage(p), lcov: lineCoverage(p) }; }
   return (a, b) => {
     const sum = t => t.reduce((s, id) => s + cache[id].o, 0);
     let cost = Math.abs(sum(a) - sum(b)) * 3;
     // also balance each criterion, so one team isn't all runners and the other all technicians
     for (const at of BAL_ATTRS) {
-      const sa = a.reduce((s, id) => s + cache[id].at[at.k], 0), sb = b.reduce((s, id) => s + cache[id].at[at.k], 0);
+      const use = id => at.k === "cha" || !cache[id].gk;
+      const sa = a.reduce((s, id) => s + (use(id) ? cache[id].at[at.k] : 0), 0), sb = b.reduce((s, id) => s + (use(id) ? cache[id].at[at.k] : 0), 0);
       cost += Math.abs(sa - sb) * 0.25;
     }
     // position coverage: main position counts 1, secondary position 0.5
@@ -723,7 +747,7 @@ function teamStats(t) {
   const ps = all.filter(revealed);
   const sum = ps.reduce((s, p) => s + ovr(p), 0);
   const byPos = Object.fromEntries(LINE_ORDER.map(k => [k, ps.filter(p => LINE_OF[p.pos] === k).length]));
-  const attrAvg = Object.fromEntries(BAL_ATTRS.map(a => [a.k, ps.length ? ps.reduce((s, p) => s + attrsOf(p)[a.k], 0) / ps.length : 0]));
+  const attrAvg = Object.fromEntries(BAL_ATTRS.map(a => { const q = a.k === "cha" ? ps : ps.filter(p => !isGK(p)); return [a.k, q.length ? q.reduce((s, p) => s + attrsOf(p)[a.k], 0) / q.length : 0]; }));
   const byLine = Object.fromEntries(LINE_ORDER.map(k => [k, all.filter(p => LINE_OF[p.pos] === k).length]));
   return { n: all.length, shown: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos: byLine, attrAvg };
 }
@@ -981,7 +1005,7 @@ function renderPlayers() {
 
 function renderEditor() {
   const isNew = state.editing === "new";
-  const p = isNew ? { name: "", pos: "ZM", pos2: [], active: true, attrs: Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
+  const p = isNew ? { name: "", pos: "ZM", pos2: [], active: true, attrs: Object.fromEntries(ALL_ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
   if (!p) { state.editing = null; return ""; }
   const mine = isNew ? null : myRating(p.id);
   const avg = isNew ? null : state.avg[p.id];
@@ -992,7 +1016,7 @@ function renderEditor() {
     orga: orgaOf(p),
     attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs })
       : revealed(p) ? round(attrsOf(p))
-      : Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? (p.pos === "TW" ? 5 : 2) : 5])),
+      : Object.fromEntries(ALL_ATTRS.map(a => [a.k, a.k === "tor" ? (p.pos === "TW" ? 5 : 2) : 5])),
   });
   const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
   const hist = (p.history || []).slice(-6);
@@ -1027,8 +1051,9 @@ function renderEditor() {
       <span class="hint">Ist dieser Spieler einer von euch vieren? Dann bewerten ihn nur die anderen drei.</span></div>
     ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}. Name und Positionen kannst du trotzdem ändern.</div>` : `
     <div class="mynote ${(!mine && !isNew) || !state.me ? "warn" : ""}"><b>${state.me ? `Deine Bewertung, ${state.me}.` : "Deine Bewertung."}</b> ${myNote}</div>
-    <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel. Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
-    <div class="attrs">${ATTRS.map(a => `
+    ${d.pos === "TW" ? `<p class="gknote"><b>Torwart-Kriterien.</b> Weil die Hauptposition TW ist, bewertest du ihn als Torwart. Reflexe und Stellungsspiel zählen am meisten.</p>` : ""}
+    <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. ${d.pos === "TW" ? "Torhüter werden nur mit Torhütern verglichen: Beide Teams bekommen möglichst gleich gute Torhüter." : "Spielverständnis und Ballbehandlung zählen am meisten."} Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
+    <div class="attrs">${attrSet(d.pos).map(a => `
       <div class="attr ${a.k === "tor" && d.pos !== "TW" ? "dim" : ""}">
         <div class="attr-head"><b>${a.name}${a.bal ? ` <span class="chip plain">zählt nicht zur Stärke</span>` : ""}</b><span class="attr-val">${d.attrs[a.k]}</span></div>
         <span class="hint">${a.hint}</span>
@@ -1301,7 +1326,7 @@ view.addEventListener("click", async (e) => {
       const ratings = {};
       for (const [name, skill, pos] of DEMO) {
         const attrs = {};
-        for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : a.k === "cha" ? 3 + Math.floor(Math.random() * 7) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
+        for (const a of ALL_ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : a.k === "cha" ? 3 + Math.floor(Math.random() * 7) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
         const others = POS_ORDER.filter(k => k !== pos && LINE_OF[k] === LINE_OF[pos] && k !== "TW");
         const pos2 = name === "Tim" ? ["TW", "LV"] : shuffle(others).slice(0, Math.floor(Math.random() * 3)).sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
         const p = { id: uid(), name, pos, pos2, active: true, demo: true, ratedAt: today() };
