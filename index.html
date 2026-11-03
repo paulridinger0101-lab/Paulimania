@@ -856,6 +856,7 @@ function renderEditor() {
   const round = at => Object.fromEntries(Object.entries(at).map(([k, v]) => [k, Math.min(10, Math.max(1, Math.round(v)))]));
   const d = state.draft || (state.draft = {
     ...p, __draft: true, pos2: altOf(p).slice(), touched: false,
+    orig: { name: p.name, pos: p.pos || "", pos2: altOf(p).slice(), active: p.active !== false },
     attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs }) : round(attrsOf(p)),
   });
   const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
@@ -874,6 +875,8 @@ function renderEditor() {
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
     </div>
+    ${!isNew && p.posBy ? `<p class="hint" style="margin:0">Positionen zuletzt geändert von ${p.posBy === state.me ? "dir" : esc(p.posBy)} am ${fmtDate(p.posAt)}. Gespeichert werden sie nur, wenn du sie hier änderst.</p>`
+      : !isNew && p.pos ? `<p class="hint" style="margin:0">Positionen werden nur gespeichert, wenn du sie hier änderst.</p>` : ""}
     <div class="posgrid">
       <div class="field"><label>Hauptposition: <span class="posname">${d.pos ? `${d.pos} · ${POS[d.pos]}` : "noch keine"}</span></label>${posPicker("dpos", d.pos, null)}</div>
       <div class="field"><label>Nebenpositionen: <span class="posname">${d.pos2.length ? d.pos2.join(", ") : "keine"}</span></label>
@@ -1102,8 +1105,20 @@ view.addEventListener("click", async (e) => {
       const before = old ? ovr(old) : null;
       // my own rating (only if new, already rated by me, or I changed a value)
       if (!old || myRating(id) || d.touched) await store.putMyRatings({ [id]: { ...d.attrs } });
-      const p = { ...(old || {}), id, name, pos: d.pos, pos2: d.pos2.filter(x => x !== d.pos), active: document.getElementById("pactive").checked };
+      const p = { ...(old || {}), id };
       if (!old) delete p.attrs;
+      const o = d.orig || {};
+      const active = document.getElementById("pactive").checked;
+      const newPos2 = d.pos2.filter(x => x !== d.pos);
+      const posChanged = !old || d.pos !== o.pos || JSON.stringify(newPos2) !== JSON.stringify(o.pos2);
+      if (!old || name !== o.name) p.name = name;
+      if (!old || active !== o.active) p.active = active;
+      if (posChanged) {
+        // someone else changed the positions while this form was open
+        if (old && ((old.pos || "") !== o.pos || JSON.stringify(altOf(old)) !== JSON.stringify(o.pos2)) && old.posBy && old.posBy !== state.me)
+          setTimeout(() => toast(`Hinweis: ${old.posBy} hatte die Positionen inzwischen auch geändert. Jetzt gilt deine Eingabe.`), 2300);
+        p.pos = d.pos; p.pos2 = newPos2; p.posBy = state.me || ""; p.posAt = today();
+      }
       const after = ovr(p);
       p.skill = after;
       p.ratedAt = (state.avg[id] && state.avg[id].last) || p.ratedAt || today();

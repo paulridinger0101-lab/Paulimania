@@ -10,7 +10,7 @@ Orga-Tool für den Montagskick (11 gegen 11).
 - **WhatsApp-Text:** Die Teams werden als Text kopiert, ohne Stärkewerte.
 - **Statistik:** Gespeicherte Spieltage mit Ergebnis. Pro Spieler steht dort, wie oft er gespielt hat, wann zuletzt, und wie seine Bilanz aussieht (Siege-Unentschieden-Niederlagen). Außerdem ein Status: Vorrecht, Ersatz oder länger weg.
 
-- **Mehrere Bewerter:** Jeder aus dem Orga-Team bewertet die Spieler selbst. Für die Teams zählt der Durchschnitt pro Kriterium. Oben bei „Ich bin“ wählt jedes Orga-Mitglied einmal seinen Namen (Paul, Louis, Kevin, Jonas), das Gerät merkt ihn sich. Sichtbar sind nur der Durchschnitt und wer schon bewertet hat, nicht die einzelnen Werte. Name und Positionen sind gemeinsam.
+- **Mehrere Bewerter:** Jeder aus dem Orga-Team bewertet die Spieler selbst. Für die Teams zählt der Durchschnitt pro Kriterium. Oben bei „Ich bin“ wählt jedes Orga-Mitglied einmal seinen Namen (Paul, Louis, Kevin, Jonas), das Gerät merkt ihn sich. Sichtbar sind nur der Durchschnitt und wer schon bewertet hat, nicht die einzelnen Werte. Name und Positionen sind gemeinsam. Sie werden nur gespeichert, wenn jemand sie im Formular wirklich ändert, und die App zeigt, wer die Positionen zuletzt geändert hat.
 
 ## Benutzen
 
