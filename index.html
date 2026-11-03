@@ -126,6 +126,14 @@ input[type="text"], input[type="date"], input[type="number"], select, textarea {
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
 .chip.plain { background: var(--bg); color: var(--muted); }
 .pos { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .5px; color: var(--muted); min-width: 56px; flex: none; }
+.posgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .posgrid { grid-template-columns: 1fr; } }
+.posname { text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 600; }
+.pospick { display: grid; gap: 6px; }
+.posline { display: grid; grid-template-columns: 72px 1fr; gap: 6px; align-items: center; }
+.posline-l { font-size: 13px; color: var(--muted); }
+.posline .seg button { min-width: 44px; padding: 7px 6px; font-family: var(--font-display); letter-spacing: .4px; font-size: 15px; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
 .pos small { font-size: 11px; opacity: .7; font-weight: 600; }
 
 /* Attendance list */
@@ -248,8 +256,41 @@ details summary { cursor: pointer; font-weight: 600; }
 (() => {
 "use strict";
 
-const POS = { TW: "Torwart", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm" };
-const POS_ORDER = ["TW", "ABW", "MIT", "STU"];
+// Detailed positions, grouped into lines (Tor, Abwehr, Mittelfeld, Sturm) for balancing.
+const POSITIONS = [
+  { k: "TW", name: "Torwart", line: "TW" },
+  { k: "LV", name: "Linker Verteidiger", line: "ABW" },
+  { k: "IV", name: "Innenverteidiger", line: "ABW" },
+  { k: "RV", name: "Rechter Verteidiger", line: "ABW" },
+  { k: "LAV", name: "Linker Außenverteidiger, offensiv", line: "ABW" },
+  { k: "RAV", name: "Rechter Außenverteidiger, offensiv", line: "ABW" },
+  { k: "ZDM", name: "Defensives Mittelfeld", line: "MIT" },
+  { k: "LM", name: "Linkes Mittelfeld", line: "MIT" },
+  { k: "ZM", name: "Zentrales Mittelfeld", line: "MIT" },
+  { k: "RM", name: "Rechtes Mittelfeld", line: "MIT" },
+  { k: "ZOM", name: "Offensives Mittelfeld", line: "MIT" },
+  { k: "LF", name: "Linker Flügelstürmer", line: "STU" },
+  { k: "MS", name: "Mittelstürmer, hängende Spitze", line: "STU" },
+  { k: "ST", name: "Stürmer", line: "STU" },
+  { k: "RF", name: "Rechter Flügelstürmer", line: "STU" },
+];
+const LINES = { TW: "Tor", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm" };
+const LINE_ORDER = ["TW", "ABW", "MIT", "STU"];
+const POS_ORDER = POSITIONS.map(x => x.k);
+const POS = Object.fromEntries(POSITIONS.map(x => [x.k, x.name]));
+const LINE_OF = Object.fromEntries(POSITIONS.map(x => [x.k, x.line]));
+// Players saved before detailed positions existed
+const LEGACY_POS = { ABW: "IV", MIT: "ZM", STU: "ST" };
+function normPlayer(p) {
+  if (!p) return p;
+  const q = { ...p };
+  if (LEGACY_POS[q.pos]) q.pos = LEGACY_POS[q.pos];
+  if (!POS[q.pos]) q.pos = "ZM";
+  if (LEGACY_POS[q.pos2]) q.pos2 = LEGACY_POS[q.pos2];
+  if (q.pos2 && (!POS[q.pos2] || q.pos2 === q.pos)) q.pos2 = "";
+  return q;
+}
+function normAll(players) { return Object.fromEntries(Object.entries(players || {}).map(([k, v]) => [k, normPlayer(v)])); }
 // Rating criteria. w = weight in a field player's overall rating.
 const ATTRS = [
   { k: "kon", name: "Kondition", short: "Kondi", hint: "Hält er das ganze Spiel durch, läuft er viel?", w: 1.1 },
@@ -276,6 +317,12 @@ function ovr(p) {
   const field = FIELD_ATTRS.reduce((s, a) => s + a.w * at[a.k], 0) / wsum;
   const v = p.pos === "TW" ? 0.65 * at.tor + 0.35 * field : field;
   return Math.round(v * 10) / 10;
+}
+function posPicker(attr, val, exclude) {
+  const rows = LINE_ORDER.map(line => `<div class="posline"><span class="posline-l">${LINES[line]}</span><div class="seg">${
+    POSITIONS.filter(x => x.line === line).map(x => `<button data-${attr}="${x.k}" aria-pressed="${val === x.k}" title="${x.name}" ${x.k === exclude ? "disabled" : ""}>${x.k}</button>`).join("")}</div></div>`).join("");
+  const none = exclude !== null ? `<div class="posline"><span class="posline-l"></span><div class="seg"><button data-${attr}="" aria-pressed="${!val}">Keine</button></div></div>` : "";
+  return `<div class="pospick">${none}${rows}</div>`;
 }
 function posHtml(p) { return `<span class="pos">${p.pos}${p.pos2 ? `<small>/${p.pos2}</small>` : ""}</span>`; }
 function f1(n) { return (Math.round(n * 10) / 10).toFixed(1).replace(".", ","); }
@@ -327,7 +374,7 @@ const store = {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ players: state.players, games: state.games, current: state.current })); } catch (e) {}
   },
   loadLocal() {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: d.players || {}, games: d.games || {}, current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
   },
   async putPlayer(p) { state.players[p.id] = p; if (db) await dbWrite(db.collection("players").doc(p.id).set(p)); else this.saveLocal(); },
   async delPlayer(id) { delete state.players[id]; if (db) await dbWrite(db.collection("players").doc(id).delete()); else this.saveLocal(); },
@@ -353,7 +400,7 @@ async function initDb() {
   const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); } }, 10000);
   const done = (k) => { seen[k] = true; if (seen.players && seen.games && seen.current) { state.loaded = true; clearTimeout(timer); } render(); };
   db.collection("players").onSnapshot(s => {
-    state.players = Object.fromEntries(s.docs.map(x => [x.id, { ...x.data(), id: x.id }])); done("players");
+    state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); done("players");
   }, () => done("players"));
   db.collection("games").onSnapshot(s => {
     state.games = Object.fromEntries(s.docs.map(x => [x.id, { ...x.data(), id: x.id }])); done("games");
@@ -383,7 +430,10 @@ function makeScorer(ids) {
     }
     // position coverage: main position counts 1, secondary position 0.5
     const cov = (t, pos) => t.reduce((s, id) => { const p = P(id); return s + (p?.pos === pos ? 1 : p?.pos2 === pos ? 0.5 : 0); }, 0);
-    for (const pos of POS_ORDER) cost += Math.abs(cov(a, pos) - cov(b, pos)) * (pos === "TW" ? 12 : 2);
+    for (const pos of POS_ORDER) cost += Math.abs(cov(a, pos) - cov(b, pos)) * (pos === "TW" ? 12 : 0.6);
+    // and per line (Abwehr, Mittelfeld, Sturm)
+    const covL = (t, line) => t.reduce((s, id) => { const p = P(id); return s + (LINE_OF[p?.pos] === line ? 1 : LINE_OF[p?.pos2] === line ? 0.5 : 0); }, 0);
+    for (const line of LINE_ORDER) if (line !== "TW") cost += Math.abs(covL(a, line) - covL(b, line)) * 2;
     const together = t => { let n = 0; for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const x = lastTeam[t[i]], y = lastTeam[t[j]]; if (x && x === y) n++; } return n; };
     cost += (together(a) + together(b)) * 0.15;
     return cost;
@@ -417,7 +467,7 @@ function buildTeams(ids) {
 function teamStats(t) {
   const ps = t.map(P).filter(Boolean);
   const sum = ps.reduce((s, p) => s + ovr(p), 0);
-  const byPos = Object.fromEntries(POS_ORDER.map(k => [k, ps.filter(p => p.pos === k).length]));
+  const byPos = Object.fromEntries(LINE_ORDER.map(k => [k, ps.filter(p => LINE_OF[p.pos] === k).length]));
   const attrAvg = Object.fromEntries(FIELD_ATTRS.map(a => [a.k, ps.length ? ps.reduce((s, p) => s + attrsOf(p)[a.k], 0) / ps.length : 0]));
   return { n: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos, attrAvg };
 }
@@ -549,7 +599,7 @@ function renderTeams() {
       <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${f1(st.avg)}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
         ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${f1(ovr(p))}</span></button></li>`; }).join("")}</ol>
-      <div class="posbar">${POS_ORDER.map(k => `<span>${k} ${st.byPos[k]}</span>`).join("")}</div>
+      <div class="posbar">${LINE_ORDER.map(k => `<span>${LINES[k]} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
   <section class="panel">
@@ -617,11 +667,12 @@ function renderEditor() {
       <div class="counter"><b>${f1(preview)}</b><span>Gesamt</span></div></div>
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
-      <div class="field"><label>Hauptposition</label><div class="seg">${POS_ORDER.map(k => `<button data-dpos="${k}" aria-pressed="${d.pos === k}">${POS[k]}</button>`).join("")}</div></div>
-      <div class="field" style="grid-column:1/-1"><label>Nebenposition</label><div class="seg">
-        <button data-dpos2="" aria-pressed="${!d.pos2 || d.pos2 === d.pos}">Keine</button>
-        ${POS_ORDER.filter(k => k !== d.pos).map(k => `<button data-dpos2="${k}" aria-pressed="${d.pos2 === k}">${POS[k]}</button>`).join("")}</div>
-        <span class="hint">Wo kann er auch spielen? Hilft beim Verteilen. „Torwart“ als Nebenposition heißt: kann notfalls ins Tor.</span></div>
+    </div>
+    <div class="posgrid">
+      <div class="field"><label>Hauptposition: <span class="posname">${d.pos} · ${POS[d.pos]}</span></label>${posPicker("dpos", d.pos, null)}</div>
+      <div class="field"><label>Nebenposition: <span class="posname">${d.pos2 ? `${d.pos2} · ${POS[d.pos2]}` : "keine"}</span></label>
+        ${posPicker("dpos2", d.pos2, d.pos)}
+        <span class="hint">Wo kann er auch spielen? Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel.</p>
     <div class="attrs">${ATTRS.map(a => `
@@ -690,10 +741,10 @@ async function copyText(text, fallbackEl) {
   catch (e) { if (fallbackEl) { fallbackEl.hidden = false; fallbackEl.value = text; fallbackEl.select(); } toast("Text markiert. Bitte selbst kopieren."); }
 }
 const DEMO = [
-  ["Jonas", 7, "TW"], ["Felix", 5, "TW"], ["Lukas", 8, "ABW"], ["Tim", 6, "ABW"], ["Niklas", 4, "ABW"], ["Moritz", 7, "ABW"],
-  ["Paul", 6, "ABW"], ["Ben", 5, "ABW"], ["Leon", 9, "MIT"], ["Finn", 6, "MIT"], ["Elias", 5, "MIT"], ["Noah", 7, "MIT"],
-  ["Luis", 4, "MIT"], ["David", 8, "MIT"], ["Julian", 6, "MIT"], ["Max", 5, "MIT"], ["Simon", 3, "MIT"], ["Erik", 9, "STU"],
-  ["Tom", 6, "STU"], ["Jan", 7, "STU"], ["Kevin", 5, "STU"], ["Marco", 4, "STU"], ["Dennis", 6, "ABW"], ["Sven", 5, "STU"],
+  ["Jonas", 7, "TW"], ["Felix", 5, "TW"], ["Lukas", 8, "IV"], ["Tim", 6, "IV"], ["Niklas", 4, "LV"], ["Moritz", 7, "RV"],
+  ["Paul", 6, "IV"], ["Ben", 5, "LAV"], ["Leon", 9, "ZOM"], ["Finn", 6, "ZM"], ["Elias", 5, "LM"], ["Noah", 7, "ZDM"],
+  ["Luis", 4, "RM"], ["David", 8, "ZM"], ["Julian", 6, "ZDM"], ["Max", 5, "RM"], ["Simon", 3, "LM"], ["Erik", 9, "ST"],
+  ["Tom", 6, "LF"], ["Jan", 7, "RF"], ["Kevin", 5, "MS"], ["Marco", 4, "ST"], ["Dennis", 6, "RAV"], ["Sven", 5, "LF"],
 ];
 
 view.addEventListener("click", async (e) => {
@@ -762,8 +813,8 @@ view.addEventListener("click", async (e) => {
       for (const [name, skill, pos] of DEMO) {
         const attrs = {};
         for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
-        const others = POS_ORDER.filter(k => k !== pos && k !== "TW");
-        const pos2 = Math.random() < 0.5 ? (name === "Tim" ? "TW" : others[Math.floor(Math.random() * others.length)]) : "";
+        const others = POS_ORDER.filter(k => k !== pos && LINE_OF[k] === LINE_OF[pos] && k !== "TW");
+        const pos2 = name === "Tim" ? "TW" : (Math.random() < 0.5 && others.length ? others[Math.floor(Math.random() * others.length)] : "");
         const p = { id: uid(), name, pos, pos2, attrs, active: true, demo: true, ratedAt: today() };
         p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
         await store.putPlayer(p);
@@ -803,7 +854,7 @@ view.addEventListener("click", async (e) => {
       try {
         const d = JSON.parse(el.value);
         if (d.app !== "paulimania") throw new Error();
-        for (const p of Object.values(d.players || {})) await store.putPlayer(p);
+        for (const p of Object.values(d.players || {})) await store.putPlayer(normPlayer(p));
         for (const g of Object.values(d.games || {})) await store.putGame(g);
         el.value = ""; toast("Sicherung eingefügt"); render();
       } catch (err) { toast("Das ist keine gültige Paulimania-Sicherung."); }
