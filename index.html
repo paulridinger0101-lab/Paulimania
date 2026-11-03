@@ -6,7 +6,7 @@
 </head>
 <body>
 <!--APP-START-->
-<title>Paulimania</title>
+<title>Schneppenhausen</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
@@ -262,7 +262,7 @@ details summary { cursor: pointer; font-weight: 600; }
 
 <div class="band">
   <div class="wrap">
-    <div class="brand"><h1>Paulimania</h1><span>Montagskick · 11 gegen 11</span>
+    <div class="brand"><h1>Schneppenhausen</h1><span>Montagskick · 11 gegen 11</span>
       <label class="whoami"><span>Ich bin</span><select id="whoami" aria-label="Wer benutzt dieses Gerät?"><option value="">auswählen</option></select></label></div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="spieler" aria-selected="false">Spieler</button>
@@ -1303,7 +1303,7 @@ view.addEventListener("click", async (e) => {
         for (const g of Object.values(d.games || {})) await store.putGame(g);
         await migrateLegacy();
         el.value = ""; toast("Sicherung eingefügt"); render();
-      } catch (err) { toast("Das ist keine gültige Paulimania-Sicherung."); }
+      } catch (err) { toast("Das ist keine gültige Schneppenhausen-Sicherung."); }
       break;
     }
   }

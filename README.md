@@ -1,4 +1,6 @@
-# Paulimania
+# Schneppenhausen
+
+(Repo: Paulimania)
 
 Orga-Tool für den Montagskick (11 gegen 11).
 
