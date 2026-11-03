@@ -204,6 +204,15 @@ tr.click:hover td { background: var(--bg); }
 .attr .seg button[aria-pressed="true"] { background: var(--accent); }
 .check { display: flex; gap: 8px; align-items: flex-start; }
 .check input { flex: none; margin-top: 3px; }
+.intro { margin: 0; color: var(--muted); font-size: 15px; max-width: 62ch; }
+.plrows { display: grid; gap: 6px; }
+.plrow { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.plrow.off { opacity: .6; }
+.plmain { display: grid; gap: 2px; min-width: 0; }
+.plname { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.plscore { display: flex; align-items: baseline; gap: 4px; }
+.plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
 .small-btn { padding: 5px 10px; font-size: 13px; }
 .trend { font-size: 11px; }
 .trend.up { color: var(--accent); }
@@ -240,9 +249,9 @@ details summary { cursor: pointer; font-weight: 600; }
   <div class="wrap">
     <div class="brand"><h1>Paulimania</h1><span>Montagskick · 11 gegen 11</span></div>
     <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="spieler" aria-selected="false">Spieler</button>
       <button role="tab" data-tab="spieltag" aria-selected="true">Spieltag</button>
-      <button role="tab" data-tab="kader" aria-selected="false">Kader</button>
-      <button role="tab" data-tab="verlauf" aria-selected="false">Verlauf</button>
+      <button role="tab" data-tab="statistik" aria-selected="false">Statistik</button>
     </nav>
   </div>
 </div>
@@ -539,26 +548,31 @@ function statusOf(p, st, lg) {
 const view = document.getElementById("view");
 function render() {
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
-  if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Kader wird geladen …</p></div>`; return; }
+  if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Spieler werden geladen …</p></div>`; return; }
   if (state.tab === "spieltag") renderMatchday();
-  else if (state.tab === "kader") renderSquad();
-  else renderHistory();
+  else if (state.tab === "spieler") renderPlayers();
+  else renderStats();
 }
 
-function emptySquad() {
+function intro(text) { return `<p class="intro">${text}</p>`; }
+
+function emptySquad(where) {
   return `<div class="panel empty">
     <h2>Noch keine Spieler</h2>
-    <p class="muted" style="max-width:46ch">Lege eure Spieler im Kader an, mit Position und Stärke von 1 bis 10. Danach kreuzt du hier an, wer am Montag dabei ist, und lässt faire Teams bauen.</p>
+    <p class="muted" style="max-width:46ch">${where === "spieler"
+      ? "Lege hier eure Spieler einmal an, mit Positionen und Bewertung. Danach erscheinen sie automatisch unter „Spieltag“ zum Ankreuzen."
+      : "Unter „Spieltag“ kreuzt du an, wer dabei ist. Dafür müssen die Spieler zuerst unter „Spieler“ angelegt sein."}</p>
     <div class="row" style="justify-content:center">
       <button class="btn primary" data-act="goto-new">Ersten Spieler anlegen</button>
-      <button class="btn" data-act="demo">Beispielkader zum Testen laden</button>
+      <button class="btn" data-act="demo">Beispielspieler zum Testen laden</button>
     </div>
   </div>`;
 }
 
 function renderMatchday() {
   const players = playerList().filter(p => p.active !== false);
-  if (!Object.keys(state.players).length) { view.innerHTML = emptySquad(); return; }
+  if (!Object.keys(state.players).length) { view.innerHTML = emptySquad("spieltag"); return; }
+  const paused = Object.values(state.players).length - players.length;
   const cur = state.current;
   const sel = new Set(cur.selected.filter(id => state.players[id]));
   const lg = lastGame();
@@ -579,6 +593,7 @@ function renderMatchday() {
     <div class="row spread">
       <div style="display:grid;gap:4px">
         <h2>Spieltag</h2>
+        ${intro(`Hake an, wer diese Woche dabei ist. Hier stehen automatisch alle Spieler aus „Spieler“${paused ? `, außer ${paused} pausierte${paused === 1 ? "m" : "n"}` : ""}.`)}
         <div class="row small"><label for="gdate" class="muted">Datum</label><input type="date" id="gdate" value="${esc(cur.date)}"></div>
       </div>
       <div style="display:grid;gap:6px;min-width:150px">
@@ -650,34 +665,26 @@ function renderTeams() {
   </section>`;
 }
 
-function renderSquad() {
+function renderPlayers() {
   const players = playerList();
-  const stats = playerStats();
-  const lg = lastGame();
+  if (!players.length && !state.editing) { view.innerHTML = emptySquad("spieler"); return; }
   let html = "";
   if (state.editing) html += renderEditor();
-  if (!players.length && !state.editing) { view.innerHTML = emptySquad(); return; }
   const hasDemo = players.some(p => p.demo);
-  html += `<section class="panel">
-    <div class="row spread"><h2>Kader <span class="muted" style="font-size:18px">${players.length}</span></h2>
+  if (players.length) html += `<section class="panel">
+    <div class="row spread"><h2>Spieler <span class="muted" style="font-size:18px">${players.length}</span></h2>
       <div class="row">${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}
       <button class="btn primary" data-act="goto-new">Spieler hinzufügen</button></div></div>
-    <p class="hint">„Vorrecht“ heißt: war beim letzten gespeicherten Spieltag dabei. Die Punkte zeigen die letzten 8 Spieltage, links ist der neueste. Bewertungen kannst du jederzeit über „Bearbeiten“ anpassen. Der Pfeil zeigt, ob sich die Stärke seit der letzten Bewertung verändert hat.</p>
-    <div class="tablewrap"><table>
-      <thead><tr><th></th><th>Name</th><th>Pos</th><th class="num">Stärke</th><th>Status</th><th>Letzte 8</th><th class="num">Spiele</th><th class="num">S-U-N</th><th>Zuletzt</th><th>Bewertet</th></tr></thead>
-      <tbody>${players.map(p => { const st = stats[p.id]; const s = statusOf(p, st, lg); const tr = trend(p); return `
-        <tr>
-          <td><button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button></td>
-          <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}${p.demo ? ` <span class="chip plain">Beispiel</span>` : ""}</td>
-          <td>${p.pos}${altOf(p).length ? ` <span class="muted">/ ${altOf(p).join(", ")}</span>` : ""}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
-          <td><span class="chip ${s.cls}">${s.label}</span></td>
-          <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("") || `<span class="muted small">–</span>`}</span></td>
-          <td class="num">${st.total}</td>
-          <td class="num">${st.w}-${st.d}-${st.l}</td>
-          <td>${fmtDate(st.last)}</td>
-          <td class="muted">${p.ratedAt ? fmtDate(p.ratedAt) : "–"}</td>
-        </tr>`; }).join("")}</tbody>
-    </table></div>
+    ${intro("Hier legst du alle Spieler einmal an und änderst später ihre Bewertung. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
+    <div class="plrows">${players.map(p => { const tr = trend(p); const alt = altOf(p); return `
+      <div class="plrow ${p.active === false ? "off" : ""}">
+        <div class="plmain">
+          <b class="plname">${esc(p.name)}</b>
+          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}</span>
+        </div>
+        <div class="plscore"><b>${f1(ovr(p))}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
+        <button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button>
+      </div>`; }).join("")}</div>
   </section>`;
   html += renderBackup();
   view.innerHTML = html;
@@ -735,16 +742,36 @@ function renderBackup() {
   </section>`;
 }
 
-function renderHistory() {
+function renderStats() {
+  const players = playerList();
   const games = sortedGames();
   if (!games.length) {
-    view.innerHTML = `<div class="panel empty"><h2>Noch keine Spieltage</h2>
-      <p class="muted" style="max-width:44ch">Nach dem Team-Erstellen auf „Spieltag speichern“ drücken. Dann zählt die Übersicht, wer wie oft dabei war, und wer nächste Woche Vorrecht hat.</p>
+    view.innerHTML = `<div class="panel empty"><h2>Noch keine Statistik</h2>
+      <p class="muted" style="max-width:46ch">Sobald du unter „Spieltag“ Teams erstellt und auf „Spieltag speichern“ gedrückt hast, siehst du hier, wer wie oft dabei war, wer nächste Woche Vorrecht hat, und alle Ergebnisse.</p>
       <button class="btn primary" data-act="goto-matchday">Zum Spieltag</button></div>`;
     return;
   }
-  view.innerHTML = `<section class="panel"><h2>Verlauf</h2>
-    <p class="hint">Ergebnis nachtragen, damit Siege und Niederlagen im Kader auftauchen.</p>
+  const stats = playerStats();
+  const lg = lastGame();
+  const order = players.slice().sort((x, y) => stats[y.id].total - stats[x.id].total || x.name.localeCompare(y.name, "de"));
+  view.innerHTML = `<section class="panel">
+    <h2>Statistik</h2>
+    ${intro("Wer war wie oft dabei? „Vorrecht“ heißt: war beim letzten gespeicherten Spieltag dabei. Die Punkte zeigen die letzten 8 Spieltage, links der neueste.")}
+    <div class="tablewrap"><table>
+      <thead><tr><th>Name</th><th>Status</th><th>Letzte 8</th><th class="num">Spiele</th><th class="num">S-U-N</th><th>Zuletzt</th></tr></thead>
+      <tbody>${order.map(p => { const st = stats[p.id]; const s = statusOf(p, st, lg); return `
+        <tr>
+          <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}</td>
+          <td><span class="chip ${s.cls}">${s.label}</span></td>
+          <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("")}</span></td>
+          <td class="num">${st.total}</td>
+          <td class="num">${st.w}-${st.d}-${st.l}</td>
+          <td>${fmtDate(st.last)}</td>
+        </tr>`; }).join("")}</tbody>
+    </table></div>
+  </section>
+  <section class="panel"><h2>Ergebnisse</h2>
+    ${intro("Ergebnis nachtragen, dann zählen Siege, Unentschieden und Niederlagen (S-U-N) oben mit.")}
     ${games.map(g => `<div class="game">
       <div class="row spread"><b>${fmtDate(g.date)}</b>
         <div class="score"><span class="chip" style="background:var(--team-a-soft);color:var(--team-a)">Gelb</span>
@@ -812,7 +839,7 @@ view.addEventListener("click", async (e) => {
     state.confirmGame = null; await store.delGame(id); toast("Spieltag gelöscht"); return render();
   }
   switch (t.dataset.act) {
-    case "goto-new": state.tab = "kader"; state.editing = "new"; state.draft = null; render(); document.getElementById("pname")?.focus(); break;
+    case "goto-new": state.tab = "spieler"; state.editing = "new"; state.draft = null; render(); document.getElementById("pname")?.focus(); break;
     case "goto-matchday": state.tab = "spieltag"; render(); break;
     case "cancel-edit": state.editing = null; state.draft = null; render(); break;
     case "save-player": {
@@ -851,7 +878,7 @@ view.addEventListener("click", async (e) => {
         p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
         await store.putPlayer(p);
       }
-      toast("Beispielkader geladen"); state.tab = "spieltag"; render(); break;
+      toast("Beispielspieler geladen"); state.tab = "spieler"; render(); break;
     }
     case "clear-demo": {
       for (const p of Object.values(state.players).filter(p => p.demo)) await store.delPlayer(p.id);
@@ -875,7 +902,7 @@ view.addEventListener("click", async (e) => {
       toast(existing ? "Spieltag aktualisiert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
       cur.date = nextMonday(new Date(new Date(cur.date + "T12:00:00").getTime() + 864e5).toISOString().slice(0, 10));
       cur.selected = []; cur.a = null; cur.b = null; store.saveCurrent();
-      state.tab = "verlauf"; render(); break;
+      state.tab = "statistik"; render(); break;
     }
     case "export": {
       const data = JSON.stringify({ app: "paulimania", v: 1, players: state.players, games: state.games });
