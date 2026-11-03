@@ -458,7 +458,17 @@ function posPicker(attr, val, exclude) {
 function altOf(p) { return Array.isArray(p?.pos2) ? p.pos2 : p?.pos2 ? [p.pos2] : []; }
 function altShort(p) { const a = altOf(p); return a.length > 2 ? `${a.slice(0, 2).join("/")} +${a.length - 2}` : a.join("/"); }
 function isRated(p) { return !!(p && (state.avg[p.id] || p.attrs)); }
-function ovrText(p) { return isRated(p) ? f1(ovr(p)) : "–"; }
+// Numbers of a player stay hidden until all organizers have rated him, so nobody
+// can work out who gave which rating. (On a single device nothing is hidden.)
+function ratersOf(p) { const a = p && state.avg[p.id]; return a ? [...new Set(a.raters.map(k => (state.ratings[k] || {}).name).filter(Boolean))] : []; }
+function revealed(p) {
+  if (!p) return false;
+  if (state.mode !== "db") return isRated(p);
+  if (!state.avg[p.id]) return !!p.attrs; // values brought in by a backup
+  return ORGA.every(n => ratersOf(p).includes(n));
+}
+function missingRaters(p) { const r = ratersOf(p); return ORGA.filter(n => !r.includes(n)); }
+function ovrText(p) { return revealed(p) ? f1(ovr(p)) : isRated(p) ? "?" : "–"; }
 function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos || "–"}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
 // How much a player covers each position: main 1, "can go in goal" 0.5,
 // other secondary positions share 0.5 between them.
@@ -693,11 +703,13 @@ function buildTeams(ids) {
   return { a: pick.a, b: pick.b };
 }
 function teamStats(t) {
-  const ps = t.map(P).filter(Boolean);
+  const all = t.map(P).filter(Boolean);
+  const ps = all.filter(revealed);
   const sum = ps.reduce((s, p) => s + ovr(p), 0);
   const byPos = Object.fromEntries(LINE_ORDER.map(k => [k, ps.filter(p => LINE_OF[p.pos] === k).length]));
   const attrAvg = Object.fromEntries(BAL_ATTRS.map(a => [a.k, ps.length ? ps.reduce((s, p) => s + attrsOf(p)[a.k], 0) / ps.length : 0]));
-  return { n: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos, attrAvg };
+  const byLine = Object.fromEntries(LINE_ORDER.map(k => [k, all.filter(p => LINE_OF[p.pos] === k).length]));
+  return { n: all.length, shown: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos: byLine, attrAvg };
 }
 function sortTeam(t) {
   return t.slice().sort((x, y) => POS_ORDER.indexOf(P(x)?.pos) - POS_ORDER.indexOf(P(y)?.pos) || (P(x)?.name || "").localeCompare(P(y)?.name || "", "de"));
@@ -865,11 +877,12 @@ function renderTeams() {
       <span class="cmp-v">${f1(vb)}</span></div>`; }).join("");
   const missing = [...cur.selected].filter(id => state.players[id] && !cur.a.includes(id) && !cur.b.includes(id));
   const unr = [...cur.a, ...cur.b].filter(id => P(id) && !isRated(P(id))).length;
+  const partial = [...cur.a, ...cur.b].filter(id => P(id) && isRated(P(id)) && !revealed(P(id))).length;
   const nopos = [...cur.a, ...cur.b].filter(id => P(id) && !P(id).pos).length;
   const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length;
   const team = (key, title, t, st) => `
     <div class="team ${key}">
-      <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${f1(st.avg)}</span></header>
+      <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${st.shown ? f1(st.avg) + (st.shown < st.n ? ` (aus ${st.shown})` : "") : "?"}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
         ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${LINE_ORDER.map(k => `<span>${LINES[k]} ${st.byPos[k]}</span>`).join("")}</div>
@@ -882,7 +895,7 @@ function renderTeams() {
         <span class="chip ${diff > 3 ? "warn" : ""}">${diff < 0.05 ? "Exakt ausgeglichen" : `Differenz ${f1(diff)}`}</span></div>
     </div>
     ${stale ? `<p class="chip warn" style="justify-self:start">Auswahl hat sich geändert. „Neu mischen“ drücken.</p>` : ""}
-    ${unr || nopos ? `<p class="hint" style="margin:0"><span class="chip warn">Hinweis</span> ${[unr ? `${unr} Spieler ${unr === 1 ? "ist" : "sind"} noch nicht bewertet und ${unr === 1 ? "zählt" : "zählen"} als Durchschnitt (5)` : "", nopos ? `${nopos} ohne Position` : ""].filter(Boolean).join(", ")}. Die Teams werden fairer, je mehr bewertet ist.</p>` : ""}
+    ${unr || nopos || partial ? `<p class="hint" style="margin:0"><span class="chip warn">Hinweis</span> ${[unr ? `${unr} Spieler ${unr === 1 ? "ist" : "sind"} noch nicht bewertet und ${unr === 1 ? "zählt" : "zählen"} als Durchschnitt (5)` : "", partial ? `${partial} noch nicht von allen bewertet (Zahl als „?“, für die Verteilung zählen die vorhandenen Bewertungen)` : "", nopos ? `${nopos} ohne Position` : ""].filter(Boolean).join(", ")}. Stärke und Vergleich zeigen nur fertig bewertete Spieler.</p>` : ""}
     <div class="teams">${team("a", "Team Gelb", cur.a, A)}${team("b", "Team Blau", cur.b, B)}</div>
     <details class="cmp"><summary>Vergleich nach Kriterien (Durchschnitt pro Team)</summary>
       <div class="cmp-grid">${cmp}</div></details>
@@ -932,9 +945,9 @@ function renderPlayers() {
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${n ? `<span>Ø aus ${n}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${n && state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
+          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${ORGA.length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${n && state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
-        <div class="plscore"><b>${ovrText(p)}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
+        <div class="plscore"><b>${ovrText(p)}</b>${tr && revealed(p) ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <div class="placts">
           <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
           ${state.confirmRow === p.id ? "" : `<button class="btn small-btn ghost danger" data-delrow="${p.id}">Löschen</button>`}
@@ -959,17 +972,22 @@ function renderEditor() {
   const d = state.draft || (state.draft = {
     ...p, __draft: true, pos2: altOf(p).slice(), touched: false,
     orig: { name: p.name, pos: p.pos || "", pos2: altOf(p).slice(), active: p.active !== false },
-    attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs }) : round(attrsOf(p)),
+    attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs })
+      : revealed(p) ? round(attrsOf(p))
+      : Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? (p.pos === "TW" ? 5 : 2) : 5])),
   });
   const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
   const hist = (p.history || []).slice(-6);
   const preview = ovr(d);
   const others = avg ? avg.raters.filter(r => r !== state.me) : [];
-  const avgLine = avg ? `Durchschnitt aus ${avg.n} Bewertung${avg.n === 1 ? "" : "en"}: <b>${f1(ovr(p))}</b> · bewertet von ${avg.raters.map(raterName).join(", ")}` : "";
+  const avgLine = !avg ? "" : revealed(p)
+    ? `Durchschnitt aus ${avg.n} Bewertung${avg.n === 1 ? "" : "en"}: <b>${f1(ovr(p))}</b> · bewertet von ${avg.raters.map(raterName).join(", ")}`
+    : `${ratersOf(p).length} von ${ORGA.length} haben bewertet (${avg.raters.map(raterName).join(", ")}) · fehlt noch: ${missingRaters(p).join(", ")}. Die Zahl erscheint, sobald alle bewertet haben.`;
   const myNote = !state.me ? "Wähle zuerst oben bei „Ich bin“ deinen Namen, sonst kann deine Bewertung nicht gespeichert werden."
     : isNew ? "Deine Bewertung ist die erste. Die anderen aus dem Orga-Team können ihn danach selbst bewerten."
     : mine ? "Das ist deine eigene Bewertung. Die anderen sehen nur den Durchschnitt, nicht deine einzelnen Werte."
-    : `Du hast ${esc(p.name)} noch nicht bewertet. Die Werte sind mit dem aktuellen Durchschnitt vorbelegt. Deine Bewertung zählt erst, wenn du etwas änderst und speicherst.`;
+    : revealed(p) ? `Du hast ${esc(p.name)} noch nicht bewertet. Die Werte sind mit dem aktuellen Durchschnitt vorbelegt. Deine Bewertung zählt erst, wenn du etwas änderst und speicherst.`
+    : `Du hast ${esc(p.name)} noch nicht bewertet. Alle Werte stehen auf 5. Die Bewertungen der anderen siehst du nicht. Deine Bewertung zählt, sobald du mindestens einen Wert antippst und speicherst.`;
   return `<section class="panel" id="editor">
     <div class="row spread"><h2>${isNew ? "Neuer Spieler" : `${esc(p.name)} bearbeiten`}</h2>
       <div class="counter"><b>${f1(preview)}</b><span>deine Wertung</span></div></div>
@@ -994,7 +1012,7 @@ function renderEditor() {
         ${scale(a.k, d.attrs[a.k])}
       </div>`).join("")}</div>
     <label class="check small"><input type="checkbox" id="pactive" ${d.active !== false ? "checked" : ""}> Aktiv (pausierte Spieler, z. B. verletzt, erscheinen nicht in der Spieltag-Auswahl)</label>
-    ${hist.length > 1 ? `<div class="small"><span class="muted">Entwicklung:</span> ${hist.map(h => `<span title="${fmtDate(h.date)}">${f1(h.ovr)} <span class="muted">(${fmtDate(h.date)})</span></span>`).join(" → ")}</div>` : ""}
+    ${hist.length > 1 && revealed(p) ? `<div class="small"><span class="muted">Entwicklung:</span> ${hist.map(h => `<span title="${fmtDate(h.date)}">${f1(h.ovr)} <span class="muted">(${fmtDate(h.date)})</span></span>`).join(" → ")}</div>` : ""}
     <div class="row">
       <button class="btn primary" data-act="save-player">Speichern</button>
       <button class="btn ghost" data-act="cancel-edit">Abbrechen</button>
@@ -1211,7 +1229,6 @@ view.addEventListener("click", async (e) => {
       const old = state.editing === "new" ? null : P(state.editing);
       if (!state.me && (!old || d.touched)) { toast("Wähle zuerst oben bei „Ich bin“ deinen Namen."); return; }
       const id = old ? old.id : uid();
-      const before = old ? ovr(old) : null;
       // my own rating (only if new, already rated by me, or I changed a value)
       if (!old || myRating(id) || d.touched) await store.putMyRatings({ [id]: { ...d.attrs } });
       const p = { ...(old || {}), id };
@@ -1229,13 +1246,15 @@ view.addEventListener("click", async (e) => {
         p.pos = d.pos; p.pos2 = newPos2; p.posBy = state.me || ""; p.posAt = today();
       }
       const after = ovr(p);
-      p.skill = after;
       p.ratedAt = (state.avg[id] && state.avg[id].last) || p.ratedAt || today();
-      const history = old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: before }] : [];
-      if (!history.length || Math.abs(history[history.length - 1].ovr - after) >= 0.05) {
-        if (history.length && history[history.length - 1].date === today()) history.pop();
-        history.push({ date: today(), ovr: after });
-      }
+      const history = old && old.history ? old.history.slice() : [];
+      if (revealed(p)) {
+        p.skill = after;
+        if (!history.length || Math.abs(history[history.length - 1].ovr - after) >= 0.05) {
+          if (history.length && history[history.length - 1].date === today()) history.pop();
+          history.push({ date: today(), ovr: after });
+        }
+      } else delete p.skill;
       p.history = history.slice(-20);
       if (d.demo) p.demo = true;
       await store.putPlayer(p);
@@ -1290,7 +1309,7 @@ view.addEventListener("click", async (e) => {
       state.tab = "statistik"; render(); break;
     }
     case "export": {
-      const players = Object.fromEntries(Object.values(state.players).map(p => [p.id, { ...p, attrs: attrsOf(p) }]));
+      const players = Object.fromEntries(Object.values(state.players).map(p => { const q = { ...p }; if (revealed(p)) q.attrs = attrsOf(p); else delete q.attrs; return [p.id, q]; }));
       const data = JSON.stringify({ app: "paulimania", v: 2, players, games: state.games });
       copyText(data, document.getElementById("backup")); break;
     }
