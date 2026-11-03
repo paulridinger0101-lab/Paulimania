@@ -302,7 +302,8 @@ function normPlayer(p) {
   if (!p) return p;
   const q = { ...p };
   if (LEGACY_POS[q.pos]) q.pos = LEGACY_POS[q.pos];
-  if (!POS[q.pos]) q.pos = "ZM";
+  if (q.pos && !POS[q.pos]) q.pos = "ZM";
+  q.pos = q.pos || "";
   // secondary positions: list (older saves had a single string)
   const alt = Array.isArray(q.pos2) ? q.pos2 : q.pos2 ? [q.pos2] : [];
   q.pos2 = [...new Set(alt.map(x => LEGACY_POS[x] || x))].filter(x => POS[x] && x !== q.pos).sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
@@ -397,7 +398,9 @@ function posPicker(attr, val, exclude) {
 }
 function altOf(p) { return Array.isArray(p?.pos2) ? p.pos2 : p?.pos2 ? [p.pos2] : []; }
 function altShort(p) { const a = altOf(p); return a.length > 2 ? `${a.slice(0, 2).join("/")} +${a.length - 2}` : a.join("/"); }
-function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
+function isRated(p) { return !!(p && (state.avg[p.id] || p.attrs)); }
+function ovrText(p) { return isRated(p) ? f1(ovr(p)) : "–"; }
+function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos || "–"}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
 // How much a player covers each position: main 1, "can go in goal" 0.5,
 // other secondary positions share 0.5 between them.
 function coverage(p) {
@@ -677,9 +680,9 @@ function emptySquad(where) {
     <h2>Noch keine Spieler</h2>
     <p class="muted" style="max-width:46ch">${where === "spieler"
       ? "Lege hier eure Spieler einmal an, mit Positionen und Bewertung. Danach erscheinen sie automatisch unter „Spieltag“ zum Ankreuzen."
-      : "Unter „Spieltag“ kreuzt du an, wer dabei ist. Dafür müssen die Spieler zuerst unter „Spieler“ angelegt sein."}</p>
+      : "Unter „Spieltag“ kreuzt du an, wer dabei ist. Dafür müssen die Spieler zuerst unter „Spieler“ angelegt sein. Dort reichen erst mal die Namen."}</p>
     <div class="row" style="justify-content:center">
-      <button class="btn primary" data-act="goto-new">Ersten Spieler anlegen</button>
+      <button class="btn primary" data-act="goto-new">Spieler anlegen</button>
       <button class="btn" data-act="demo">Beispielspieler zum Testen laden</button>
     </div>
   </div>`;
@@ -753,12 +756,14 @@ function renderTeams() {
       <div class="cmp-bar b"><i style="width:${vb * 10}%"></i></div>
       <span class="cmp-v">${f1(vb)}</span></div>`; }).join("");
   const missing = [...cur.selected].filter(id => state.players[id] && !cur.a.includes(id) && !cur.b.includes(id));
+  const unr = [...cur.a, ...cur.b].filter(id => P(id) && !isRated(P(id))).length;
+  const nopos = [...cur.a, ...cur.b].filter(id => P(id) && !P(id).pos).length;
   const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length;
   const team = (key, title, t, st) => `
     <div class="team ${key}">
       <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${f1(st.avg)}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
-        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${f1(ovr(p))}</span></button></li>`; }).join("")}</ol>
+        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${LINE_ORDER.map(k => `<span>${LINES[k]} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
@@ -769,6 +774,7 @@ function renderTeams() {
         <span class="chip ${diff > 3 ? "warn" : ""}">${diff < 0.05 ? "Exakt ausgeglichen" : `Differenz ${f1(diff)}`}</span></div>
     </div>
     ${stale ? `<p class="chip warn" style="justify-self:start">Auswahl hat sich geändert. „Neu mischen“ drücken.</p>` : ""}
+    ${unr || nopos ? `<p class="hint" style="margin:0"><span class="chip warn">Hinweis</span> ${[unr ? `${unr} Spieler ${unr === 1 ? "ist" : "sind"} noch nicht bewertet und ${unr === 1 ? "zählt" : "zählen"} als Durchschnitt (5)` : "", nopos ? `${nopos} ohne Position` : ""].filter(Boolean).join(", ")}. Die Teams werden fairer, je mehr bewertet ist.</p>` : ""}
     <div class="teams">${team("a", "Team Gelb", cur.a, A)}${team("b", "Team Blau", cur.b, B)}</div>
     <details class="cmp"><summary>Vergleich nach Kriterien (Durchschnitt pro Team)</summary>
       <div class="cmp-grid">${cmp}</div></details>
@@ -781,29 +787,46 @@ function renderTeams() {
   </section>`;
 }
 
+function quickAdd(first) {
+  return `<section class="panel">
+    <h2>${first ? "Spieler anlegen" : "Spieler hinzufügen"}</h2>
+    ${intro("Erst mal nur die Namen eintragen. Mehrere auf einmal gehen mit Komma getrennt. Positionen und Bewertung trägt danach jeder aus dem Orga-Team über „Bearbeiten“ ein.")}
+    <div class="row"><input type="text" id="qadd" placeholder="z. B. Max K., Tom, Jan S." autocomplete="off" style="flex:1;min-width:180px">
+      <button class="btn primary" data-act="quick-add">Hinzufügen</button></div>
+    ${first ? `<div><button class="btn ghost" data-act="demo">Oder: Beispielspieler zum Testen laden</button></div>` : ""}
+  </section>`;
+}
+
 function renderPlayers() {
   const players = playerList();
-  if (!players.length && !state.editing) { view.innerHTML = emptySquad("spieler"); return; }
   let html = "";
   if (!state.me) html += whoPanel("Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Dieses Gerät merkt sich das. Ändern kannst du es oben bei „Ich bin“.");
   if (state.editing) html += renderEditor();
+  html += quickAdd(!players.length);
   const hasDemo = players.some(p => p.demo);
-  const unrated = players.filter(p => !myRating(p.id)).length;
+  const mineMissing = players.filter(p => !myRating(p.id));
+  const nobody = players.filter(p => !isRated(p)).length;
+  const shown = state.plFilter === "mine" && state.me ? mineMissing : players;
   if (players.length) html += `<section class="panel">
     <div class="row spread"><h2>Spieler <span class="muted" style="font-size:18px">${players.length}</span></h2>
-      <div class="row">${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}
-      <button class="btn primary" data-act="goto-new">Spieler hinzufügen</button></div></div>
-    ${intro("Hier legst du alle Spieler einmal an. Jeder aus dem Orga-Team bewertet selbst, die App rechnet den Durchschnitt. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
-    ${state.me ? `<div class="row small"><span class="chip ${unrated ? "warn" : ""}">${unrated ? `${state.me}, du hast ${players.length - unrated} von ${players.length} bewertet` : `${state.me}, du hast alle bewertet`}</span></div>` : ""}
-    <div class="plrows">${players.map(p => { const tr = trend(p); const alt = altOf(p); return `
+      ${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}</div>
+    ${intro("Jeder aus dem Orga-Team bewertet selbst, die App rechnet den Durchschnitt. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
+    <div class="row small">
+      ${state.me ? `<span class="chip ${mineMissing.length ? "warn" : ""}">${mineMissing.length ? `${state.me}, du hast ${players.length - mineMissing.length} von ${players.length} bewertet` : `${state.me}, du hast alle bewertet`}</span>` : ""}
+      ${nobody ? `<span class="chip warn">${nobody} noch von niemandem bewertet</span>` : ""}
+    </div>
+    ${state.me ? `<div class="seg" role="group" aria-label="Filter">
+      <button data-plf="all" aria-pressed="${state.plFilter !== "mine"}">Alle</button>
+      <button data-plf="mine" aria-pressed="${state.plFilter === "mine"}">Von mir noch nicht bewertet (${mineMissing.length})</button></div>` : ""}
+    <div class="plrows">${shown.map(p => { const tr = trend(p); const alt = altOf(p); const n = state.avg[p.id] ? state.avg[p.id].n : 0; return `
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}<span>Ø aus ${state.avg[p.id] ? state.avg[p.id].n : 0}</span>${state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
+          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${n ? `<span>Ø aus ${n}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${n && state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
-        <div class="plscore"><b>${f1(ovr(p))}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
-        <button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button>
-      </div>`; }).join("")}</div>
+        <div class="plscore"><b>${ovrText(p)}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
+        <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
+      </div>`; }).join("") || `<p class="muted">Du hast alle Spieler bewertet.</p>`}</div>
   </section>`;
   html += renderBackup();
   view.innerHTML = html;
@@ -837,7 +860,7 @@ function renderEditor() {
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
     </div>
     <div class="posgrid">
-      <div class="field"><label>Hauptposition: <span class="posname">${d.pos} · ${POS[d.pos]}</span></label>${posPicker("dpos", d.pos, null)}</div>
+      <div class="field"><label>Hauptposition: <span class="posname">${d.pos ? `${d.pos} · ${POS[d.pos]}` : "noch keine"}</span></label>${posPicker("dpos", d.pos, null)}</div>
       <div class="field"><label>Nebenpositionen: <span class="posname">${d.pos2.length ? d.pos2.join(", ") : "keine"}</span></label>
         ${posPicker("dpos2", d.pos2, d.pos)}
         <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
@@ -937,10 +960,11 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
+  if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
     const id = t.dataset.swap;
     if (!state.swapSel) state.swapSel = id;
@@ -973,7 +997,24 @@ view.addEventListener("click", async (e) => {
     state.confirmGame = null; await store.delGame(id); toast("Spieltag gelöscht"); return render();
   }
   switch (t.dataset.act) {
-    case "goto-new": state.tab = "spieler"; state.editing = "new"; state.draft = null; render(); document.getElementById("pname")?.focus(); break;
+    case "goto-new": state.tab = "spieler"; state.editing = null; state.draft = null; render(); document.getElementById("qadd")?.focus(); break;
+    case "quick-add": {
+      const el = document.getElementById("qadd");
+      const names = el.value.split(/[,;\n]/).map(x => x.trim()).filter(Boolean);
+      if (!names.length) { toast("Bitte einen Namen eingeben."); el.focus(); return; }
+      const have = new Set(Object.values(state.players).map(p => p.name.toLowerCase()));
+      const added = [], skipped = [];
+      for (const name of names) {
+        if (have.has(name.toLowerCase())) { skipped.push(name); continue; }
+        have.add(name.toLowerCase());
+        await store.putPlayer({ id: uid(), name, pos: "", pos2: [], active: true, history: [] });
+        added.push(name);
+      }
+      render();
+      const f = document.getElementById("qadd"); f.value = ""; f.focus();
+      toast(added.length ? `${added.length === 1 ? added[0] : added.length + " Spieler"} hinzugefügt${skipped.length ? `. Schon vorhanden: ${skipped.join(", ")}` : ""}` : `Schon vorhanden: ${skipped.join(", ")}`);
+      break;
+    }
     case "goto-matchday": state.tab = "spieltag"; render(); break;
     case "cancel-edit": state.editing = null; state.draft = null; render(); break;
     case "save-player": {
@@ -1097,6 +1138,7 @@ view.addEventListener("input", (e) => {
 });
 view.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.dataset?.edit) e.target.click();
+  if (e.key === "Enter" && e.target.id === "qadd") view.querySelector('[data-act="quick-add"]')?.click();
   if (e.key === "Enter" && e.target.id === "pname") view.querySelector('[data-act="save-player"]')?.click();
 });
 document.querySelector("nav.tabs").addEventListener("click", (e) => {
