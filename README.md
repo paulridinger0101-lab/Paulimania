@@ -4,7 +4,7 @@ Orga-Tool für den Montagskick (11 gegen 11).
 
 ## Phase 1 – für den Organisator
 
-- **Kader:** Spieler mit Hauptposition und neun Kriterien (je 1–10) anlegen: Kondition, Tempo, Ballbehandlung, Passspiel, Spielverständnis, Zweikampfverhalten, Abschluss, Erfahrung & Sicherheit, Torwartspiel. Daraus berechnet die App die Gesamtstärke. Bewertungen lassen sich jederzeit ändern, die Entwicklung wird mitgespeichert. Spieler, die eine Weile fehlen (z. B. verletzt), lassen sich pausieren.
+- **Kader:** Spieler mit Haupt- und optionaler Nebenposition und neun Kriterien (je 1–10) anlegen: Kondition, Tempo, Ballbehandlung, Passspiel, Spielverständnis, Zweikampfverhalten, Abschluss, Erfahrung & Sicherheit, Torwartspiel. Daraus berechnet die App die Gesamtstärke. Bewertungen lassen sich jederzeit ändern, die Entwicklung wird mitgespeichert. Spieler, die eine Weile fehlen (z. B. verletzt), lassen sich pausieren.
 - **Spieltag:** Ankreuzen, wer dabei ist. „Alle von letzter Woche“ übernimmt die Spieler mit Vorrecht.
 - **Faire Teams:** Der Generator verteilt Gesamtstärke, jedes einzelne Kriterium und die Positionen gleichmäßig, mit je einem Torwart pro Team. Er mischt außerdem anders als letzte Woche. „Neu mischen“ liefert eine andere, ebenso faire Aufteilung. Spieler lassen sich von Hand tauschen.
 - **WhatsApp-Text:** Die Teams werden als Text kopiert, ohne Stärkewerte.

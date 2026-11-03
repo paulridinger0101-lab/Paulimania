@@ -125,7 +125,8 @@ input[type="text"], input[type="date"], input[type="number"], select, textarea {
 .chip { font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
 .chip.plain { background: var(--bg); color: var(--muted); }
-.pos { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .5px; color: var(--muted); min-width: 30px; }
+.pos { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .5px; color: var(--muted); min-width: 56px; flex: none; }
+.pos small { font-size: 11px; opacity: .7; font-weight: 600; }
 
 /* Attendance list */
 .filters { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -276,6 +277,7 @@ function ovr(p) {
   const v = p.pos === "TW" ? 0.65 * at.tor + 0.35 * field : field;
   return Math.round(v * 10) / 10;
 }
+function posHtml(p) { return `<span class="pos">${p.pos}${p.pos2 ? `<small>/${p.pos2}</small>` : ""}</span>`; }
 function f1(n) { return (Math.round(n * 10) / 10).toFixed(1).replace(".", ","); }
 function today() { return new Date().toISOString().slice(0, 10); }
 const TARGET = 22;
@@ -379,11 +381,9 @@ function makeScorer(ids) {
       const sa = a.reduce((s, id) => s + cache[id].at[at.k], 0), sb = b.reduce((s, id) => s + cache[id].at[at.k], 0);
       cost += Math.abs(sa - sb) * 0.25;
     }
-    for (const pos of POS_ORDER) {
-      const ca = a.filter(id => P(id)?.pos === pos).length;
-      const cb = b.filter(id => P(id)?.pos === pos).length;
-      cost += Math.abs(ca - cb) * (pos === "TW" ? 12 : 2);
-    }
+    // position coverage: main position counts 1, secondary position 0.5
+    const cov = (t, pos) => t.reduce((s, id) => { const p = P(id); return s + (p?.pos === pos ? 1 : p?.pos2 === pos ? 0.5 : 0); }, 0);
+    for (const pos of POS_ORDER) cost += Math.abs(cov(a, pos) - cov(b, pos)) * (pos === "TW" ? 12 : 2);
     const together = t => { let n = 0; for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const x = lastTeam[t[i]], y = lastTeam[t[j]]; if (x && x === y) n++; } return n; };
     cost += (together(a) + together(b)) * 0.15;
     return cost;
@@ -493,6 +493,7 @@ function renderMatchday() {
   ].filter(g => g[1].length);
   const pct = Math.min(100, (n / TARGET) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
+  const gk2 = [...sel].filter(id => P(id)?.pos2 === "TW").length;
 
   let html = `
   <section class="panel">
@@ -508,7 +509,7 @@ function renderMatchday() {
     </div>
     <div class="row small">
       ${n > TARGET ? `<span class="chip warn">${n - TARGET} zu viel</span>` : n < TARGET ? `<span class="chip plain">${TARGET - n} Plätze frei</span>` : `<span class="chip">Voll</span>`}
-      <span class="chip ${gk < 2 ? "warn" : ""}">${gk} Torwart${gk === 1 ? "" : "e"}</span>
+      <span class="chip ${gk < 2 ? "warn" : ""}">${gk} Torwart${gk === 1 ? "" : "e"}</span>${gk2 ? `<span class="chip plain">${gk2} kann notfalls ins Tor</span>` : ""}
     </div>
     <div class="filters">
       <input type="text" id="filter" placeholder="Spieler suchen" value="${esc(state.filter)}" style="flex:1;min-width:160px">
@@ -519,7 +520,7 @@ function renderMatchday() {
     html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3><div class="plist">` +
       list.map(p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
-        <span class="pos">${p.pos}</span><span class="nm">${esc(p.name)}</span>
+        ${posHtml(p)}<span class="nm">${esc(p.name)}</span>
       </label>`).join("") + `</div></div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
@@ -547,7 +548,7 @@ function renderTeams() {
     <div class="team ${key}">
       <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${f1(st.avg)}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
-        <span class="pos">${p.pos}</span><span class="nm">${esc(p.name)}</span><span class="skill">${f1(ovr(p))}</span></button></li>`; }).join("")}</ol>
+        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${f1(ovr(p))}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${POS_ORDER.map(k => `<span>${k} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
@@ -589,7 +590,7 @@ function renderSquad() {
         <tr>
           <td><button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button></td>
           <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}${p.demo ? ` <span class="chip plain">Beispiel</span>` : ""}</td>
-          <td>${p.pos}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
+          <td>${p.pos}${p.pos2 ? ` <span class="muted">/ ${p.pos2}</span>` : ""}</td><td class="num"><b>${f1(ovr(p))}</b>${tr ? ` <span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</td>
           <td><span class="chip ${s.cls}">${s.label}</span></td>
           <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("") || `<span class="muted small">–</span>`}</span></td>
           <td class="num">${st.total}</td>
@@ -617,6 +618,10 @@ function renderEditor() {
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
       <div class="field"><label>Hauptposition</label><div class="seg">${POS_ORDER.map(k => `<button data-dpos="${k}" aria-pressed="${d.pos === k}">${POS[k]}</button>`).join("")}</div></div>
+      <div class="field" style="grid-column:1/-1"><label>Nebenposition</label><div class="seg">
+        <button data-dpos2="" aria-pressed="${!d.pos2 || d.pos2 === d.pos}">Keine</button>
+        ${POS_ORDER.filter(k => k !== d.pos).map(k => `<button data-dpos2="${k}" aria-pressed="${d.pos2 === k}">${POS[k]}</button>`).join("")}</div>
+        <span class="hint">Wo kann er auch spielen? Hilft beim Verteilen. „Torwart“ als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel.</p>
     <div class="attrs">${ATTRS.map(a => `
@@ -692,7 +697,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-act],[data-swap],[data-edit],[data-dpos],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.swap) {
@@ -710,10 +715,12 @@ view.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.edit) { state.editing = t.dataset.edit; state.draft = null; state.confirmDel = false; render(); document.getElementById("editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
-  if (t.dataset.dpos || t.dataset.dattr) {
+  if (t.dataset.dpos || t.dataset.dattr || t.dataset.dpos2 !== undefined) {
     const d = state.draft;
     d.name = document.getElementById("pname").value; d.active = document.getElementById("pactive").checked;
-    if (t.dataset.dpos) d.pos = t.dataset.dpos; else d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v };
+    if (t.dataset.dpos2 !== undefined) d.pos2 = t.dataset.dpos2;
+    else if (t.dataset.dpos) { d.pos = t.dataset.dpos; if (d.pos2 === d.pos) d.pos2 = ""; }
+    else d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v };
     const y = window.scrollY; render(); window.scrollTo(0, y); return;
   }
   if (t.dataset.delgame) {
@@ -730,9 +737,9 @@ view.addEventListener("click", async (e) => {
       if (!name) { toast("Bitte einen Namen eingeben."); return; }
       const d = state.draft;
       const old = state.editing === "new" ? null : P(state.editing);
-      const p = { id: old ? old.id : uid(), name, pos: d.pos, attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
+      const p = { id: old ? old.id : uid(), name, pos: d.pos, pos2: d.pos2 && d.pos2 !== d.pos ? d.pos2 : "", attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
       p.skill = ovr(p);
-      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos;
+      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos || (old.pos2 || "") !== p.pos2;
       p.ratedAt = changed ? today() : (old.ratedAt || today());
       const history = (old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: ovr(old) }] : []);
       if (changed) { if (history.length && history[history.length - 1].date === p.ratedAt) history.pop(); history.push({ date: p.ratedAt, ovr: p.skill }); }
@@ -755,7 +762,9 @@ view.addEventListener("click", async (e) => {
       for (const [name, skill, pos] of DEMO) {
         const attrs = {};
         for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
-        const p = { id: uid(), name, pos, attrs, active: true, demo: true, ratedAt: today() };
+        const others = POS_ORDER.filter(k => k !== pos && k !== "TW");
+        const pos2 = Math.random() < 0.5 ? (name === "Tim" ? "TW" : others[Math.floor(Math.random() * others.length)]) : "";
+        const p = { id: uid(), name, pos, pos2, attrs, active: true, demo: true, ratedAt: today() };
         p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
         await store.putPlayer(p);
       }
