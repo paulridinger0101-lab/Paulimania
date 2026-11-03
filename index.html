@@ -217,7 +217,12 @@ tr.click:hover td { background: var(--bg); }
 .plname { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .placts { display: grid; gap: 4px; }
 .placts .btn { justify-content: center; }
-.delhint { grid-column: 1 / -1; margin: 0; color: var(--warn); }
+.delbox { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px 12px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); }
+.delbox .hint { color: var(--ink); }
+.holdbtn { position: relative; overflow: hidden; color: var(--warn); border-color: var(--warn); background: var(--surface);
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; min-width: 170px; justify-content: center; }
+.holdbtn i { position: absolute; inset: 0 auto 0 0; width: 0; background: color-mix(in srgb, var(--warn) 35%, transparent); pointer-events: none; }
+.holdbtn span { position: relative; pointer-events: none; font-variant-numeric: tabular-nums; }
 .plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -666,6 +671,7 @@ function syncDraft() {
   if (a) state.draft.active = a.checked;
 }
 function render() {
+  if (state.holding) { state.pendingRender = true; return; }
   syncDraft();
   const sel = document.getElementById("whoami");
   if (sel) { if (sel.options.length === 1) ORGA.forEach(n => sel.add(new Option(n, n))); sel.value = state.me || ""; }
@@ -830,9 +836,11 @@ function renderPlayers() {
         <div class="plscore"><b>${ovrText(p)}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <div class="placts">
           <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
-          <button class="btn small-btn ghost danger" data-delrow="${p.id}">${state.confirmRow === p.id ? "Wirklich löschen?" : "Löschen"}</button>
+          ${state.confirmRow === p.id ? "" : `<button class="btn small-btn ghost danger" data-delrow="${p.id}">Löschen</button>`}
         </div>
-        ${state.confirmRow === p.id ? `<p class="hint delhint">${esc(p.name)} wird für alle gelöscht, mit allen Bewertungen. Nochmal tippen zum Bestätigen. Fällt er nur eine Weile aus, kannst du ihn unter „Bearbeiten“ stattdessen pausieren.</p>` : ""}
+        ${state.confirmRow === p.id ? `<div class="delbox"><b>Wirklich löschen?</b>
+          <p class="hint" style="margin:0">${esc(p.name)} wird für alle gelöscht, mit allen Bewertungen. Zum Bestätigen den Knopf 5 Sekunden gedrückt halten. Fällt er nur eine Weile aus, kannst du ihn unter „Bearbeiten“ stattdessen pausieren.</p>
+          <div class="row">${holdBtn(p.id)}<button class="btn small-btn" data-act="cancel-del">Abbrechen</button></div></div>` : ""}
       </div>`; }).join("") || `<p class="muted">Du hast alle Spieler bewertet.</p>`}</div>
   </section>`;
   html += renderBackup();
@@ -885,7 +893,7 @@ function renderEditor() {
     <div class="row">
       <button class="btn primary" data-act="save-player">Speichern</button>
       <button class="btn ghost" data-act="cancel-edit">Abbrechen</button>
-      ${isNew ? "" : `<button class="btn danger" data-act="del-player" style="margin-left:auto">${state.confirmDel ? "Wirklich löschen?" : "Löschen"}</button>`}
+      ${isNew ? "" : state.confirmDel ? `<span style="margin-left:auto" class="row"><span class="hint">Wirklich löschen?</span>${holdBtn(p.id)}<button class="btn small-btn" data-act="cancel-del">Abbrechen</button></span>` : `<button class="btn danger" data-act="del-player" style="margin-left:auto">Löschen</button>`}
     </div>
   </section>`;
 }
@@ -949,6 +957,48 @@ function renderStats() {
   </section>`;
 }
 
+/* ---------- hold to delete ---------- */
+const HOLD_MS = 5000;
+function holdBtn(id) { return `<button class="btn small-btn holdbtn" data-hold="${id}" type="button"><i></i><span>5 s gedrückt halten</span></button>`; }
+let hold = null;
+function startHold(btn) {
+  if (hold) return;
+  const id = btn.dataset.hold, bar = btn.querySelector("i"), label = btn.querySelector("span");
+  btn.classList.add("holding");
+  bar.style.transition = "none"; bar.style.width = "0%"; void bar.offsetWidth;
+  bar.style.transition = `width ${HOLD_MS}ms linear`; bar.style.width = "100%";
+  const t0 = Date.now();
+  label.textContent = "Halten … 5";
+  const tick = setInterval(() => { const left = Math.ceil((HOLD_MS - (Date.now() - t0)) / 1000); label.textContent = left > 0 ? `Halten … ${left}` : "Wird gelöscht"; }, 100);
+  state.holding = true;
+  hold = { btn, tick, timer: setTimeout(async () => {
+    clearInterval(tick); hold = null; state.holding = false; state.pendingRender = false;
+    state.confirmRow = null; state.confirmDel = false;
+    await deletePlayer(id);
+  }, HOLD_MS) };
+}
+function cancelHold() {
+  if (!hold) return;
+  clearTimeout(hold.timer); clearInterval(hold.tick);
+  const { btn } = hold; hold = null; state.holding = false;
+  btn.classList.remove("holding");
+  const bar = btn.querySelector("i"); bar.style.transition = "width .2s"; bar.style.width = "0%";
+  btn.querySelector("span").textContent = "5 s gedrückt halten";
+  toast("Losgelassen. Nichts gelöscht.");
+  if (state.pendingRender) { state.pendingRender = false; render(); }
+}
+view.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest("[data-hold]"); if (!b) return;
+  e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) {}
+  startHold(b);
+});
+window.addEventListener("pointerup", cancelHold);
+window.addEventListener("pointercancel", cancelHold);
+window.addEventListener("blur", cancelHold);
+view.addEventListener("contextmenu", (e) => { if (e.target.closest("[data-hold]")) e.preventDefault(); });
+view.addEventListener("keydown", (e) => { const b = e.target.closest?.("[data-hold]"); if (b && (e.key === " " || e.key === "Enter")) { e.preventDefault(); if (!e.repeat) startHold(b); } });
+view.addEventListener("keyup", (e) => { if (e.target.closest?.("[data-hold]") && (e.key === " " || e.key === "Enter")) cancelHold(); });
+
 /* ---------- actions ---------- */
 async function deletePlayer(id) {
   const cur = state.current, name = P(id)?.name || "Spieler";
@@ -988,12 +1038,7 @@ view.addEventListener("click", async (e) => {
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
-  if (t.dataset.delrow) {
-    const id = t.dataset.delrow;
-    if (state.confirmRow !== id) { state.confirmRow = id; return render(); }
-    state.confirmRow = null;
-    await deletePlayer(id); return;
-  }
+  if (t.dataset.delrow) { state.confirmRow = t.dataset.delrow; return render(); }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
     const id = t.dataset.swap;
@@ -1076,11 +1121,8 @@ view.addEventListener("click", async (e) => {
       render(); if (wasNew) document.getElementById("pname")?.focus();
       break;
     }
-    case "del-player": {
-      if (!state.confirmDel) { state.confirmDel = true; return render(); }
-      const id = state.editing; state.confirmDel = false;
-      await deletePlayer(id); break;
-    }
+    case "del-player": state.confirmDel = true; render(); break;
+    case "cancel-del": state.confirmDel = false; state.confirmRow = null; render(); break;
     case "demo": {
       if (!state.me) { state.tab = "spieler"; render(); toast("Wähle zuerst, wer du bist."); return; }
       const ratings = {};
