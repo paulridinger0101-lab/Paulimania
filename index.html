@@ -215,6 +215,9 @@ tr.click:hover td { background: var(--bg); }
 .plrow.off { opacity: .6; }
 .plmain { display: grid; gap: 2px; min-width: 0; }
 .plname { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.placts { display: grid; gap: 4px; }
+.placts .btn { justify-content: center; }
+.delhint { grid-column: 1 / -1; margin: 0; color: var(--warn); }
 .plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -825,7 +828,11 @@ function renderPlayers() {
           <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${n ? `<span>Ø aus ${n}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${n && state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
         <div class="plscore"><b>${ovrText(p)}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
-        <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
+        <div class="placts">
+          <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
+          <button class="btn small-btn ghost danger" data-delrow="${p.id}">${state.confirmRow === p.id ? "Wirklich löschen?" : "Löschen"}</button>
+        </div>
+        ${state.confirmRow === p.id ? `<p class="hint delhint">${esc(p.name)} wird für alle gelöscht, mit allen Bewertungen. Nochmal tippen zum Bestätigen. Fällt er nur eine Weile aus, kannst du ihn unter „Bearbeiten“ stattdessen pausieren.</p>` : ""}
       </div>`; }).join("") || `<p class="muted">Du hast alle Spieler bewertet.</p>`}</div>
   </section>`;
   html += renderBackup();
@@ -935,14 +942,31 @@ function renderStats() {
         <span>:</span>
         <input type="number" min="0" inputmode="numeric" id="sb-${g.id}" data-score="${g.id}" data-side="b" value="${g.scoreB ?? ""}" aria-label="Tore Blau">
         <span class="chip" style="background:var(--team-b-soft);color:var(--team-b)">Blau</span></div></div>
-      <div class="small muted"><b style="color:var(--team-a)">Gelb:</b> ${g.a.map(id => esc(P(id)?.name || "?")).join(", ")}</div>
-      <div class="small muted"><b style="color:var(--team-b)">Blau:</b> ${g.b.map(id => esc(P(id)?.name || "?")).join(", ")}</div>
+      <div class="small muted"><b style="color:var(--team-a)">Gelb:</b> ${g.a.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
+      <div class="small muted"><b style="color:var(--team-b)">Blau:</b> ${g.b.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
       <div><button class="btn ghost danger" data-delgame="${g.id}">${state.confirmGame === g.id ? "Wirklich löschen?" : "Spieltag löschen"}</button></div>
     </div>`).join("")}
   </section>`;
 }
 
 /* ---------- actions ---------- */
+async function deletePlayer(id) {
+  const cur = state.current, name = P(id)?.name || "Spieler";
+  if (state.editing === id) { state.editing = null; state.draft = null; }
+  cur.selected = cur.selected.filter(x => x !== id);
+  if (cur.a) { cur.a = cur.a.filter(x => x !== id); cur.b = cur.b.filter(x => x !== id); }
+  store.saveCurrent();
+  // remove every organizer's rating of this player
+  const touched = Object.keys(state.ratings).filter(rid => state.ratings[rid] && state.ratings[rid][id]);
+  for (const rid of touched) {
+    const m = { ...state.ratings[rid] }; delete m[id];
+    state.ratings = { ...state.ratings, [rid]: m };
+    if (db) await dbWrite(db.collection("ratings").doc(rid).set({ players: m }));
+  }
+  computeAvg();
+  await store.delPlayer(id);
+  toast(`${name} gelöscht`); render();
+}
 function waText() {
   const c = state.current;
   const line = id => { const p = P(id); return p ? `• ${p.name}${p.pos === "TW" ? " (TW)" : ""}` : ""; };
@@ -960,10 +984,16 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
+  if (t.dataset.delrow) {
+    const id = t.dataset.delrow;
+    if (state.confirmRow !== id) { state.confirmRow = id; return render(); }
+    state.confirmRow = null;
+    await deletePlayer(id); return;
+  }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
     const id = t.dataset.swap;
@@ -1048,10 +1078,8 @@ view.addEventListener("click", async (e) => {
     }
     case "del-player": {
       if (!state.confirmDel) { state.confirmDel = true; return render(); }
-      const id = state.editing; state.confirmDel = false; state.editing = null; state.draft = null;
-      cur.selected = cur.selected.filter(x => x !== id); store.saveCurrent();
-      await store.delMyRatings([id]);
-      await store.delPlayer(id); toast("Spieler gelöscht"); render(); break;
+      const id = state.editing; state.confirmDel = false;
+      await deletePlayer(id); break;
     }
     case "demo": {
       if (!state.me) { state.tab = "spieler"; render(); toast("Wähle zuerst, wer du bist."); return; }
