@@ -213,6 +213,8 @@ tr.click:hover td { background: var(--bg); }
 .plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
+.mynote.warn { background: var(--warn-soft); }
 .small-btn { padding: 5px 10px; font-size: 13px; }
 .trend { font-size: 11px; }
 .trend.up { color: var(--accent); }
@@ -318,12 +320,33 @@ const ATTRS = [
 const FIELD_ATTRS = ATTRS.filter(a => a.w > 0);
 // Criteria spread evenly across both teams (Charakter doesn't count toward strength but is balanced too)
 const BAL_ATTRS = ATTRS.filter(a => a.w > 0 || a.bal);
+// Old saves had one "Zweikampfverhalten" value; it became two criteria.
+function normAttrs(a) {
+  const out = { ...(a || {}) };
+  if (out.zwk) { if (!out.zwb) out.zwb = out.zwk; if (!out.zwh) out.zwh = out.zwk; delete out.zwk; }
+  return out;
+}
+// Ratings: every organizer rates on their own; the app averages them per criterion.
+function computeAvg() {
+  const acc = {};
+  for (const [rid, map] of Object.entries(state.ratings)) for (const [pid, r] of Object.entries(map || {})) {
+    if (!r || !r.attrs) continue;
+    const e = acc[pid] || (acc[pid] = { sum: {}, cnt: {}, raters: [], last: "" });
+    const at = normAttrs(r.attrs);
+    for (const a of ATTRS) if (at[a.k]) { e.sum[a.k] = (e.sum[a.k] || 0) + at[a.k]; e.cnt[a.k] = (e.cnt[a.k] || 0) + 1; }
+    e.raters.push(rid); if ((r.date || "") > e.last) e.last = r.date || "";
+  }
+  state.avg = {};
+  for (const [pid, e] of Object.entries(acc)) state.avg[pid] = { attrs: Object.fromEntries(Object.keys(e.sum).map(k => [k, e.sum[k] / e.cnt[k]])), n: e.raters.length, raters: e.raters, last: e.last };
+}
+function myRating(pid) { return (state.ratings[state.me] || {})[pid] || null; }
+function raterName(rid) { return rid === state.me ? "dir" : state.names[rid] || "einem Orga-Mitglied"; }
 function attrsOf(p) {
   const base = p.skill || 5, out = {};
-  const old = p.attrs || {};
+  const avg = !p.__draft && p.id && state.avg[p.id];
+  const old = normAttrs(avg ? avg.attrs : p.attrs);
   for (const a of ATTRS) {
     let v = old[a.k];
-    if (!v && (a.k === "zwb" || a.k === "zwh")) v = old.zwk; // former single "Zweikampfverhalten"
     if (!v) v = a.k === "tor" ? (p.pos === "TW" ? base : 2) : a.k === "cha" ? 5 : base;
     out[a.k] = v;
   }
@@ -378,6 +401,11 @@ const state = {
   filter: "",
   mode: "local",
   loaded: false,
+  ratings: {},   // raterId -> { playerId: { attrs, date } }
+  avg: {},       // playerId -> { attrs, n, raters, last }
+  me: "local",   // this organizer's rater id
+  isOwner: true,
+  names: {},     // raterId -> display name (resolved live, never stored)
 };
 
 /* ---------- helpers ---------- */
@@ -409,15 +437,33 @@ function toast(msg) {
 let db = null;
 const store = {
   saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ players: state.players, games: state.games, current: state.current })); } catch (e) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ players: state.players, games: state.games, current: state.current, ratings: state.ratings })); } catch (e) {}
   },
   loadLocal() {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: d.ratings || {}, current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
+    computeAvg();
   },
   async putPlayer(p) { state.players[p.id] = p; if (db) await dbWrite(db.collection("players").doc(p.id).set(p)); else this.saveLocal(); },
   async delPlayer(id) { delete state.players[id]; if (db) await dbWrite(db.collection("players").doc(id).delete()); else this.saveLocal(); },
   async putGame(g) { state.games[g.id] = g; if (db) await dbWrite(db.collection("games").doc(g.id).set(g)); else this.saveLocal(); },
   async delGame(id) { delete state.games[id]; if (db) await dbWrite(db.collection("games").doc(id).delete()); else this.saveLocal(); },
+  async putMyRatings(entries) { // entries: { playerId: attrs }
+    const mine = { ...(state.ratings[state.me] || {}) };
+    for (const [pid, attrs] of Object.entries(entries)) mine[pid] = { attrs, date: today() };
+    state.ratings = { ...state.ratings, [state.me]: mine }; computeAvg();
+    await this.saveMine();
+  },
+  async delMyRatings(pids) {
+    const mine = { ...(state.ratings[state.me] || {}) };
+    let hit = false; for (const pid of pids) if (mine[pid]) { delete mine[pid]; hit = true; }
+    if (!hit) return;
+    state.ratings = { ...state.ratings, [state.me]: mine }; computeAvg();
+    await this.saveMine();
+  },
+  async saveMine() {
+    if (db) await dbWrite(db.collection("ratings").doc(state.me).set({ players: state.ratings[state.me] || {} }));
+    else this.saveLocal();
+  },
   saveCurrent: debounce(async () => {
     if (db) await dbWrite(db.doc("meta/current").set(JSON.parse(JSON.stringify(state.current))));
     else store.saveLocal();
@@ -434,9 +480,29 @@ async function initDb() {
   try { d = await window.claude.use("db"); } catch (e) { d = null; }
   if (!d) return;
   db = d; state.mode = "db";
-  const seen = { players: false, games: false, current: false };
+  state.ratings = {}; computeAvg();
+  let u = null;
+  try { u = await window.claude.use("user"); } catch (e) { u = null; }
+  state.user = u;
+  if (u) {
+    try { state.me = (await u.id()) || "shared"; } catch (e) { state.me = "shared"; }
+    try { state.isOwner = await u.isOwner(); } catch (e) { state.isOwner = false; }
+  } else { state.me = "shared"; state.isOwner = false; }
+  const seen = { players: false, games: false, current: false, ratings: false };
+  let migrated = false;
   const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); } }, 10000);
-  const done = (k) => { seen[k] = true; if (seen.players && seen.games && seen.current) { state.loaded = true; clearTimeout(timer); } render(); };
+  const done = (k) => {
+    seen[k] = true;
+    if (seen.players && seen.games && seen.current && seen.ratings) {
+      state.loaded = true; clearTimeout(timer);
+      if (!migrated) { migrated = true; migrateLegacy(); }
+    }
+    render();
+  };
+  db.collection("ratings").onSnapshot(s => {
+    state.ratings = Object.fromEntries(s.docs.map(x => [x.id, (x.data() || {}).players || {}]));
+    computeAvg(); resolveNames(); done("ratings");
+  }, () => done("ratings"));
   db.collection("players").onSnapshot(s => {
     state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); done("players");
   }, () => done("players"));
@@ -447,6 +513,24 @@ async function initDb() {
     if (s.exists && !s.metadata.hasPendingWrites) state.current = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(s.data())));
     done("current");
   }, () => done("current"));
+}
+
+function resolveNames() {
+  const u = state.user;
+  const ids = Object.keys(state.ratings).filter(id => id !== state.me && id !== "shared");
+  if (!u || !ids.length) return;
+  u.profiles(ids).then(ps => {
+    let changed = false;
+    for (const id of ids) { const n = (ps && ps[id] && ps[id].name) || ""; if (state.names[id] !== n) { state.names[id] = n; changed = true; } }
+    if (changed) render();
+  }).catch(() => {});
+}
+// Players rated before ratings were per person: their values become the owner's rating.
+async function migrateLegacy() {
+  if (!state.isOwner) return;
+  const add = {};
+  for (const p of Object.values(state.players)) if (p.attrs && !state.avg[p.id]) add[p.id] = attrsOf({ ...p, __draft: true });
+  if (Object.keys(add).length) await store.putMyRatings(add);
 }
 
 /* ---------- team balancing ---------- */
@@ -671,16 +755,18 @@ function renderPlayers() {
   let html = "";
   if (state.editing) html += renderEditor();
   const hasDemo = players.some(p => p.demo);
+  const unrated = players.filter(p => !myRating(p.id)).length;
   if (players.length) html += `<section class="panel">
     <div class="row spread"><h2>Spieler <span class="muted" style="font-size:18px">${players.length}</span></h2>
       <div class="row">${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}
       <button class="btn primary" data-act="goto-new">Spieler hinzufügen</button></div></div>
-    ${intro("Hier legst du alle Spieler einmal an und änderst später ihre Bewertung. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
+    ${intro("Hier legst du alle Spieler einmal an. Jeder aus dem Orga-Team bewertet selbst, die App rechnet den Durchschnitt. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
+    <div class="row small"><span class="chip ${unrated ? "warn" : ""}">${unrated ? `Du hast ${players.length - unrated} von ${players.length} bewertet` : "Du hast alle bewertet"}</span></div>
     <div class="plrows">${players.map(p => { const tr = trend(p); const alt = altOf(p); return `
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}</span>
+          <span class="plmeta small muted"><span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}<span>Ø aus ${state.avg[p.id] ? state.avg[p.id].n : 0}</span>${!myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
         <div class="plscore"><b>${f1(ovr(p))}</b>${tr ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <button class="btn small-btn" data-edit="${p.id}">Bearbeiten</button>
@@ -694,13 +780,25 @@ function renderEditor() {
   const isNew = state.editing === "new";
   const p = isNew ? { name: "", pos: "ZM", pos2: [], active: true, attrs: Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? 2 : 5])) } : P(state.editing);
   if (!p) { state.editing = null; return ""; }
-  const d = state.draft || (state.draft = { ...p, pos2: altOf(p).slice(), attrs: attrsOf(p) });
+  const mine = isNew ? null : myRating(p.id);
+  const avg = isNew ? null : state.avg[p.id];
+  const round = at => Object.fromEntries(Object.entries(at).map(([k, v]) => [k, Math.min(10, Math.max(1, Math.round(v)))]));
+  const d = state.draft || (state.draft = {
+    ...p, __draft: true, pos2: altOf(p).slice(), touched: false,
+    attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs }) : round(attrsOf(p)),
+  });
   const scale = (k, val) => `<div class="seg scale">${Array.from({ length: 10 }, (_, i) => i + 1).map(v => `<button data-dattr="${k}" data-v="${v}" aria-pressed="${val === v}" aria-label="${v}">${v}</button>`).join("")}</div>`;
   const hist = (p.history || []).slice(-6);
   const preview = ovr(d);
+  const others = avg ? avg.raters.filter(r => r !== state.me) : [];
+  const avgLine = avg ? `Durchschnitt aus ${avg.n} Bewertung${avg.n === 1 ? "" : "en"}: <b>${f1(ovr(p))}</b> · bewertet von ${avg.raters.map(raterName).join(", ")}` : "";
+  const myNote = isNew ? "Deine Bewertung ist die erste. Die anderen aus dem Orga-Team können ihn danach selbst bewerten."
+    : mine ? "Das ist deine eigene Bewertung. Die anderen sehen nur den Durchschnitt, nicht deine einzelnen Werte."
+    : `Du hast ${esc(p.name)} noch nicht bewertet. Die Werte sind mit dem aktuellen Durchschnitt vorbelegt. Deine Bewertung zählt erst, wenn du etwas änderst und speicherst.`;
   return `<section class="panel" id="editor">
     <div class="row spread"><h2>${isNew ? "Neuer Spieler" : `${esc(p.name)} bearbeiten`}</h2>
-      <div class="counter"><b>${f1(preview)}</b><span>Gesamt</span></div></div>
+      <div class="counter"><b>${f1(preview)}</b><span>deine Wertung</span></div></div>
+    ${avgLine ? `<p class="small" style="margin:0">${avgLine}</p>` : ""}
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
     </div>
@@ -710,6 +808,7 @@ function renderEditor() {
         ${posPicker("dpos2", d.pos2, d.pos)}
         <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
+    <div class="mynote ${!mine && !isNew ? "warn" : ""}"><b>Deine Bewertung.</b> ${myNote}</div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel. Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
     <div class="attrs">${ATTRS.map(a => `
       <div class="attr ${a.k === "tor" && d.pos !== "TW" ? "dim" : ""}">
@@ -830,7 +929,7 @@ view.addEventListener("click", async (e) => {
       d.pos2 = !k ? [] : d.pos2.includes(k) ? d.pos2.filter(x => x !== k) : [...d.pos2, k].sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
     }
     else if (t.dataset.dpos) { d.pos = t.dataset.dpos; d.pos2 = d.pos2.filter(x => x !== d.pos); }
-    else d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v };
+    else { d.attrs = { ...d.attrs, [t.dataset.dattr]: +t.dataset.v }; d.touched = true; }
     const y = window.scrollY; render(); window.scrollTo(0, y); return;
   }
   if (t.dataset.delgame) {
@@ -847,12 +946,20 @@ view.addEventListener("click", async (e) => {
       if (!name) { toast("Bitte einen Namen eingeben."); return; }
       const d = state.draft;
       const old = state.editing === "new" ? null : P(state.editing);
-      const p = { id: old ? old.id : uid(), name, pos: d.pos, pos2: d.pos2.filter(x => x !== d.pos), attrs: { ...d.attrs }, active: document.getElementById("pactive").checked };
-      p.skill = ovr(p);
-      const changed = !old || JSON.stringify(attrsOf(old)) !== JSON.stringify(p.attrs) || old.pos !== p.pos || JSON.stringify(altOf(old)) !== JSON.stringify(p.pos2);
-      p.ratedAt = changed ? today() : (old.ratedAt || today());
-      const history = (old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: ovr(old) }] : []);
-      if (changed) { if (history.length && history[history.length - 1].date === p.ratedAt) history.pop(); history.push({ date: p.ratedAt, ovr: p.skill }); }
+      const id = old ? old.id : uid();
+      const before = old ? ovr(old) : null;
+      // my own rating (only if new, already rated by me, or I changed a value)
+      if (!old || myRating(id) || d.touched) await store.putMyRatings({ [id]: { ...d.attrs } });
+      const p = { ...(old || {}), id, name, pos: d.pos, pos2: d.pos2.filter(x => x !== d.pos), active: document.getElementById("pactive").checked };
+      if (!old) delete p.attrs;
+      const after = ovr(p);
+      p.skill = after;
+      p.ratedAt = (state.avg[id] && state.avg[id].last) || p.ratedAt || today();
+      const history = old && old.history ? old.history.slice() : old ? [{ date: old.ratedAt || today(), ovr: before }] : [];
+      if (!history.length || Math.abs(history[history.length - 1].ovr - after) >= 0.05) {
+        if (history.length && history[history.length - 1].date === today()) history.pop();
+        history.push({ date: today(), ovr: after });
+      }
       p.history = history.slice(-20);
       if (d.demo) p.demo = true;
       await store.putPlayer(p);
@@ -866,22 +973,28 @@ view.addEventListener("click", async (e) => {
       if (!state.confirmDel) { state.confirmDel = true; return render(); }
       const id = state.editing; state.confirmDel = false; state.editing = null; state.draft = null;
       cur.selected = cur.selected.filter(x => x !== id); store.saveCurrent();
+      await store.delMyRatings([id]);
       await store.delPlayer(id); toast("Spieler gelöscht"); render(); break;
     }
     case "demo": {
+      const ratings = {};
       for (const [name, skill, pos] of DEMO) {
         const attrs = {};
         for (const a of ATTRS) attrs[a.k] = a.k === "tor" ? (pos === "TW" ? skill : 1 + Math.floor(Math.random() * 4)) : a.k === "cha" ? 3 + Math.floor(Math.random() * 7) : Math.max(1, Math.min(10, skill + Math.round((Math.random() - 0.5) * 4)));
         const others = POS_ORDER.filter(k => k !== pos && LINE_OF[k] === LINE_OF[pos] && k !== "TW");
         const pos2 = name === "Tim" ? ["TW", "LV"] : shuffle(others).slice(0, Math.floor(Math.random() * 3)).sort((x, y) => POS_ORDER.indexOf(x) - POS_ORDER.indexOf(y));
-        const p = { id: uid(), name, pos, pos2, attrs, active: true, demo: true, ratedAt: today() };
-        p.skill = ovr(p); p.history = [{ date: p.ratedAt, ovr: p.skill }];
+        const p = { id: uid(), name, pos, pos2, active: true, demo: true, ratedAt: today() };
+        p.skill = ovr({ ...p, attrs, __draft: true }); p.history = [{ date: p.ratedAt, ovr: p.skill }];
+        ratings[p.id] = attrs;
         await store.putPlayer(p);
       }
+      await store.putMyRatings(ratings);
       toast("Beispielspieler geladen"); state.tab = "spieler"; render(); break;
     }
     case "clear-demo": {
-      for (const p of Object.values(state.players).filter(p => p.demo)) await store.delPlayer(p.id);
+      const demoIds = Object.values(state.players).filter(p => p.demo).map(p => p.id);
+      await store.delMyRatings(demoIds);
+      for (const id of demoIds) await store.delPlayer(id);
       cur.selected = cur.selected.filter(id => state.players[id]); cur.a = null; cur.b = null; store.saveCurrent();
       toast("Beispielspieler entfernt"); render(); break;
     }
@@ -905,7 +1018,8 @@ view.addEventListener("click", async (e) => {
       state.tab = "statistik"; render(); break;
     }
     case "export": {
-      const data = JSON.stringify({ app: "paulimania", v: 1, players: state.players, games: state.games });
+      const players = Object.fromEntries(Object.values(state.players).map(p => [p.id, { ...p, attrs: attrsOf(p) }]));
+      const data = JSON.stringify({ app: "paulimania", v: 2, players, games: state.games });
       copyText(data, document.getElementById("backup")); break;
     }
     case "import": {
@@ -915,6 +1029,7 @@ view.addEventListener("click", async (e) => {
         if (d.app !== "paulimania") throw new Error();
         for (const p of Object.values(d.players || {})) await store.putPlayer(normPlayer(p));
         for (const g of Object.values(d.games || {})) await store.putGame(g);
+        await migrateLegacy();
         el.value = ""; toast("Sicherung eingefügt"); render();
       } catch (err) { toast("Das ist keine gültige Paulimania-Sicherung."); }
       break;
@@ -953,6 +1068,7 @@ document.querySelector("nav.tabs").addEventListener("click", (e) => {
 });
 
 store.loadLocal();
+migrateLegacy();
 render();
 initDb();
 })();
