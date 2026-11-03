@@ -375,10 +375,26 @@ function refreshMe() {
   state.myKey = state.userId;
   state.me = Object.keys(c).find(n => c[n] === state.userId) || null;
 }
+// Which player is an organizer: set in the player form, or by first name
+// ("Kevin Eckert" -> Kevin) when exactly one player has that first name.
+function firstName(p) { return ((p && p.name) || "").trim().split(/\s+/)[0].toLowerCase(); }
+function orgaOf(p) {
+  if (!p) return "";
+  if (typeof p.orga === "string") return p.orga;
+  const n = ORGA.find(o => o.toLowerCase() === firstName(p)); if (!n) return "";
+  const all = Object.values(state.players);
+  if (all.some(q => q.orga === n)) return "";
+  return all.filter(q => typeof q.orga !== "string" && firstName(q) === firstName(p)).length === 1 ? n : "";
+}
+// Nobody rates himself: an organizer is rated by the other three.
+function requiredRaters(p) { const o = orgaOf(p); return ORGA.filter(n => n !== o); }
+function isSelf(p) { return !!state.me && orgaOf(p) === state.me; }
 function computeAvg() {
   const acc = {};
+  const orgaByPid = Object.fromEntries(Object.values(state.players).map(q => [q.id, orgaOf(q)]));
   for (const rid of activeRaterKeys()) for (const [pid, r] of Object.entries((state.ratings[rid] || {}).players || {})) {
     if (!r || !r.attrs) continue;
+    if (orgaByPid[pid] && orgaByPid[pid] === (state.ratings[rid] || {}).name) continue; // own rating of himself never counts
     const e = acc[pid] || (acc[pid] = { sum: {}, cnt: {}, raters: [], last: "" });
     const at = normAttrs(r.attrs);
     for (const a of ATTRS) if (at[a.k]) { e.sum[a.k] = (e.sum[a.k] || 0) + at[a.k]; e.cnt[a.k] = (e.cnt[a.k] || 0) + 1; }
@@ -388,7 +404,7 @@ function computeAvg() {
   for (const [pid, e] of Object.entries(acc)) state.avg[pid] = { attrs: Object.fromEntries(Object.keys(e.sum).map(k => [k, e.sum[k] / e.cnt[k]])), n: e.raters.length, raters: e.raters, last: e.last };
 }
 function myDoc() { return state.myKey ? state.ratings[state.myKey] : null; }
-function myRating(pid) { return state.me ? ((myDoc() || {}).players || {})[pid] || null : null; }
+function myRating(pid) { return state.me && !isSelf(P(pid)) ? ((myDoc() || {}).players || {})[pid] || null : null; }
 function raterName(rid) { return rid === state.myKey ? "dir" : (state.ratings[rid] && state.ratings[rid].name) || "einem Orga-Mitglied"; }
 function loadMe() { try { const v = localStorage.getItem(ME_KEY); return ORGA.includes(v) ? v : null; } catch (e) { return null; } }
 async function setMe(name) {
@@ -465,9 +481,9 @@ function revealed(p) {
   if (!p) return false;
   if (state.mode !== "db") return isRated(p);
   if (!state.avg[p.id]) return !!p.attrs; // values brought in by a backup
-  return ORGA.every(n => ratersOf(p).includes(n));
+  return requiredRaters(p).every(n => ratersOf(p).includes(n));
 }
-function missingRaters(p) { const r = ratersOf(p); return ORGA.filter(n => !r.includes(n)); }
+function missingRaters(p) { const r = ratersOf(p); return requiredRaters(p).filter(n => !r.includes(n)); }
 function ovrText(p) { return revealed(p) ? f1(ovr(p)) : isRated(p) ? "?" : "–"; }
 function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos || "–"}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
 // How much a player covers each position: main 1, "can go in goal" 0.5,
@@ -619,7 +635,7 @@ async function initDb() {
     refreshMe(); computeAvg(); done("orga");
   }, () => done("orga"));
   db.collection("players").onSnapshot(s => {
-    state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); done("players");
+    state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); computeAvg(); done("players");
   }, () => done("players"));
   db.collection("games").onSnapshot(s => {
     state.games = Object.fromEntries(s.docs.map(x => [x.id, { ...x.data(), id: x.id }])); done("games");
@@ -927,7 +943,8 @@ function renderPlayers() {
   if (state.editing) html += renderEditor();
   html += quickAdd(!players.length);
   const hasDemo = players.some(p => p.demo);
-  const mineMissing = players.filter(p => !myRating(p.id));
+  const rateable = players.filter(p => !isSelf(p));
+  const mineMissing = rateable.filter(p => !myRating(p.id));
   const nobody = players.filter(p => !isRated(p)).length;
   const shown = state.plFilter === "mine" && state.me ? mineMissing : players;
   if (players.length) html += `<section class="panel">
@@ -935,7 +952,7 @@ function renderPlayers() {
       ${hasDemo ? `<button class="btn danger" data-act="clear-demo">Beispielspieler entfernen</button>` : ""}</div>
     ${intro("Jeder aus dem Orga-Team bewertet selbst, die App rechnet den Durchschnitt. Wer dabei ist, kreuzt du jede Woche unter „Spieltag“ an.")}
     <div class="row small">
-      ${state.me ? `<span class="chip ${mineMissing.length ? "warn" : ""}">${mineMissing.length ? `${state.me}, du hast ${players.length - mineMissing.length} von ${players.length} bewertet` : `${state.me}, du hast alle bewertet`}</span>` : ""}
+      ${state.me ? `<span class="chip ${mineMissing.length ? "warn" : ""}">${mineMissing.length ? `${state.me}, du hast ${rateable.length - mineMissing.length} von ${rateable.length} bewertet` : `${state.me}, du hast alle bewertet`}</span>` : ""}
       ${nobody ? `<span class="chip warn">${nobody} noch von niemandem bewertet</span>` : ""}
     </div>
     ${state.me ? `<div class="seg" role="group" aria-label="Filter">
@@ -945,11 +962,11 @@ function renderPlayers() {
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${ORGA.length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${n && state.me && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
+          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${requiredRaters(p).length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${isSelf(p) ? `<span class="chip">das bist du</span>` : orgaOf(p) ? `<span class="chip plain">Orga</span>` : ""}${n && state.me && !isSelf(p) && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
         <div class="plscore"><b>${ovrText(p)}</b>${tr && revealed(p) ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <div class="placts">
-          <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) ? "Bearbeiten" : "Bewerten"}</button>
+          <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) || isSelf(p) ? "Bearbeiten" : "Bewerten"}</button>
           ${state.confirmRow === p.id ? "" : `<button class="btn small-btn ghost danger" data-delrow="${p.id}">Löschen</button>`}
         </div>
         ${state.confirmRow === p.id ? `<div class="delbox"><b>Wirklich löschen?</b>
@@ -971,7 +988,8 @@ function renderEditor() {
   const round = at => Object.fromEntries(Object.entries(at).map(([k, v]) => [k, Math.min(10, Math.max(1, Math.round(v)))]));
   const d = state.draft || (state.draft = {
     ...p, __draft: true, pos2: altOf(p).slice(), touched: false,
-    orig: { name: p.name, pos: p.pos || "", pos2: altOf(p).slice(), active: p.active !== false },
+    orig: { name: p.name, pos: p.pos || "", pos2: altOf(p).slice(), active: p.active !== false, orga: orgaOf(p) },
+    orga: orgaOf(p),
     attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs })
       : revealed(p) ? round(attrsOf(p))
       : Object.fromEntries(ATTRS.map(a => [a.k, a.k === "tor" ? (p.pos === "TW" ? 5 : 2) : 5])),
@@ -982,7 +1000,7 @@ function renderEditor() {
   const others = avg ? avg.raters.filter(r => r !== state.me) : [];
   const avgLine = !avg ? "" : revealed(p)
     ? `Durchschnitt aus ${avg.n} Bewertung${avg.n === 1 ? "" : "en"}: <b>${f1(ovr(p))}</b> · bewertet von ${avg.raters.map(raterName).join(", ")}`
-    : `${ratersOf(p).length} von ${ORGA.length} haben bewertet (${avg.raters.map(raterName).join(", ")}) · fehlt noch: ${missingRaters(p).join(", ")}. Die Zahl erscheint, sobald alle bewertet haben.`;
+    : `${ratersOf(p).length} von ${requiredRaters(p).length} haben bewertet (${avg.raters.map(raterName).join(", ")}) · fehlt noch: ${missingRaters(p).join(", ")}. Die Zahl erscheint, sobald alle bewertet haben.`;
   const myNote = !state.me ? "Wähle zuerst oben bei „Ich bin“ deinen Namen, sonst kann deine Bewertung nicht gespeichert werden."
     : isNew ? "Deine Bewertung ist die erste. Die anderen aus dem Orga-Team können ihn danach selbst bewerten."
     : mine ? "Das ist deine eigene Bewertung. Die anderen sehen nur den Durchschnitt, nicht deine einzelnen Werte."
@@ -990,7 +1008,7 @@ function renderEditor() {
     : `Du hast ${esc(p.name)} noch nicht bewertet. Alle Werte stehen auf 5. Die Bewertungen der anderen siehst du nicht. Deine Bewertung zählt, sobald du mindestens einen Wert antippst und speicherst.`;
   return `<section class="panel" id="editor">
     <div class="row spread"><h2>${isNew ? "Neuer Spieler" : `${esc(p.name)} bearbeiten`}</h2>
-      <div class="counter"><b>${f1(preview)}</b><span>deine Wertung</span></div></div>
+      ${!isNew && isSelf(p) ? "" : `<div class="counter"><b>${f1(preview)}</b><span>deine Wertung</span></div>`}</div>
     ${avgLine ? `<p class="small" style="margin:0">${avgLine}</p>` : ""}
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
@@ -1003,6 +1021,11 @@ function renderEditor() {
         ${posPicker("dpos2", d.pos2, d.pos)}
         <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>
+    <div class="field"><label>Orga-Mitglied</label><div class="seg">
+      <button data-dorga="" aria-pressed="${!d.orga}">Nein</button>
+      ${ORGA.map(n => `<button data-dorga="${n}" aria-pressed="${d.orga === n}">${n}</button>`).join("")}</div>
+      <span class="hint">Ist dieser Spieler einer von euch vieren? Dann bewerten ihn nur die anderen drei.</span></div>
+    ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}. Name und Positionen kannst du trotzdem ändern.</div>` : `
     <div class="mynote ${(!mine && !isNew) || !state.me ? "warn" : ""}"><b>${state.me ? `Deine Bewertung, ${state.me}.` : "Deine Bewertung."}</b> ${myNote}</div>
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. Spielverständnis und Ballbehandlung zählen am meisten, beim Torwart vor allem das Torwartspiel. Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
     <div class="attrs">${ATTRS.map(a => `
@@ -1010,7 +1033,7 @@ function renderEditor() {
         <div class="attr-head"><b>${a.name}${a.bal ? ` <span class="chip plain">zählt nicht zur Stärke</span>` : ""}</b><span class="attr-val">${d.attrs[a.k]}</span></div>
         <span class="hint">${a.hint}</span>
         ${scale(a.k, d.attrs[a.k])}
-      </div>`).join("")}</div>
+      </div>`).join("")}</div>`}
     <label class="check small"><input type="checkbox" id="pactive" ${d.active !== false ? "checked" : ""}> Aktiv (pausierte Spieler, z. B. verletzt, erscheinen nicht in der Spieltag-Auswahl)</label>
     ${hist.length > 1 && revealed(p) ? `<div class="small"><span class="muted">Entwicklung:</span> ${hist.map(h => `<span title="${fmtDate(h.date)}">${f1(h.ovr)} <span class="muted">(${fmtDate(h.date)})</span></span>`).join(" → ")}</div>` : ""}
     <div class="row">
@@ -1160,7 +1183,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
@@ -1185,6 +1208,7 @@ view.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.edit) { state.editing = t.dataset.edit; state.draft = null; state.confirmDel = false; render(); document.getElementById("editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (t.dataset.dorga !== undefined) { state.draft.orga = t.dataset.dorga; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
   if (t.dataset.dpos || t.dataset.dattr || t.dataset.dpos2 !== undefined) {
     const d = state.draft;
     d.name = document.getElementById("pname").value; d.active = document.getElementById("pactive").checked;
@@ -1230,7 +1254,12 @@ view.addEventListener("click", async (e) => {
       if (!state.me && (!old || d.touched)) { toast("Wähle zuerst oben bei „Ich bin“ deinen Namen."); return; }
       const id = old ? old.id : uid();
       // my own rating (only if new, already rated by me, or I changed a value)
-      if (!old || myRating(id) || d.touched) await store.putMyRatings({ [id]: { ...d.attrs } });
+      if (d.orga && d.orga !== (d.orig || {}).orga) {
+        const other = Object.values(state.players).find(q => q.id !== id && orgaOf(q) === d.orga);
+        if (other) { toast(`${d.orga} ist schon mit ${other.name} verknüpft. Ändere dort zuerst „Orga-Mitglied“ auf „Nein“.`); return; }
+      }
+      const selfNow = !!state.me && d.orga === state.me;
+      if (!selfNow && (!old || myRating(id) || d.touched)) await store.putMyRatings({ [id]: { ...d.attrs } });
       const p = { ...(old || {}), id };
       if (!old) delete p.attrs;
       const o = d.orig || {};
@@ -1239,6 +1268,7 @@ view.addEventListener("click", async (e) => {
       const posChanged = !old || d.pos !== o.pos || JSON.stringify(newPos2) !== JSON.stringify(o.pos2);
       if (!old || name !== o.name) p.name = name;
       if (!old || active !== o.active) p.active = active;
+      if (!old || d.orga !== o.orga) p.orga = d.orga;
       if (posChanged) {
         // someone else changed the positions while this form was open
         if (old && ((old.pos || "") !== o.pos || JSON.stringify(altOf(old)) !== JSON.stringify(o.pos2)) && old.posBy && old.posBy !== state.me)
