@@ -385,7 +385,11 @@ const ORGA = ["Paul", "Louis", "Kevin", "Jonas"];
 const ME_KEY = "paulimania-me";
 function normRatingDoc(key, d) {
   d = d || {};
-  if (d.name) return { name: d.name, claimedAt: d.claimedAt || "", players: d.players || {} };
+  if (d.name) {
+    const players = { ...(d.players || {}) };
+    for (const [k, v] of Object.entries(d)) if (k.startsWith("p_")) { if (v && typeof v === "object") players[k.slice(2)] = v; else delete players[k.slice(2)]; }
+    return { name: d.name, claimedAt: d.claimedAt || "", players };
+  }
   // saved by an earlier version: keyed by name (or "local"), no claim
   const players = d.players || (Object.values(d).every(v => v && typeof v === "object" && "attrs" in v) ? d : {});
   return { name: ORGA.includes(key) ? key : "", claimedAt: "", players, legacy: true };
@@ -672,7 +676,22 @@ const store = {
     const players = { ...doc.players };
     for (const [pid, e] of Object.entries(entries)) players[pid] = { ...(players[pid] || {}), ...e };
     state.ratings = { ...state.ratings, [state.myKey]: { ...doc, players } }; computeAvg();
-    await this.saveMine();
+    if (db) await this.writeMine(Object.fromEntries(Object.keys(entries).map(pid => ["p_" + pid, players[pid]])));
+    else this.saveLocal();
+  },
+  // Shared mode: change only the given fields of my document (never rewrite the whole thing,
+  // so an outdated copy on this device can't wipe ratings saved from another device).
+  async writeMine(fields) {
+    const ref = db.collection("ratings").doc(state.myKey);
+    try { await ref.update(fields); }
+    catch (e) {
+      // only when my document doesn't exist yet: create it with everything this device knows
+      if (e && e.code === "invalid_argument" && !(await ref.get().catch(() => ({ exists: true }))).exists) {
+        const doc = myDoc() || { players: {} };
+        const all = Object.fromEntries(Object.entries(doc.players).map(([pid, v]) => ["p_" + pid, v]));
+        await dbWrite(ref.set({ name: doc.name || state.me, claimedAt: doc.claimedAt || "", ...all, ...fields }));
+      } else toast("Speichern fehlgeschlagen. Verbindung prüfen und nochmal versuchen.");
+    }
   },
   async delMyRatings(pids) {
     const doc = myDoc(); if (!doc) return;
@@ -680,12 +699,21 @@ const store = {
     let hit = false; for (const pid of pids) if (players[pid]) { delete players[pid]; hit = true; }
     if (!hit) return;
     state.ratings = { ...state.ratings, [state.myKey]: { ...doc, players } }; computeAvg();
-    await this.saveMine();
+    if (db) await this.writeMine(Object.fromEntries(pids.map(pid => ["p_" + pid, null])));
+    else this.saveLocal();
   },
   async saveMine() {
     const doc = myDoc(); if (!state.me || !doc) return;
-    if (db) await dbWrite(db.collection("ratings").doc(state.myKey).set({ name: doc.name, claimedAt: doc.claimedAt, players: doc.players }));
-    else this.saveLocal();
+    if (!db) return this.saveLocal();
+    // claiming a name: only name and time change; existing ratings stay untouched
+    const ref = db.collection("ratings").doc(state.myKey);
+    try { await ref.update({ name: doc.name, claimedAt: doc.claimedAt }); }
+    catch (e) {
+      if (e && e.code === "invalid_argument" && !(await ref.get().catch(() => ({ exists: true }))).exists) {
+        const fields = Object.fromEntries(Object.entries(doc.players).map(([pid, v]) => ["p_" + pid, v]));
+        await dbWrite(ref.set({ name: doc.name, claimedAt: doc.claimedAt, ...fields }));
+      } else toast("Speichern fehlgeschlagen. Verbindung prüfen und nochmal versuchen.");
+    }
   },
   // Matchday selection: local taps always win over older copies coming back from the store.
   saveCurrent() { curSeq++; saveCurrentSoon(); },
@@ -770,16 +798,18 @@ async function initDb() {
   const seen = { players: false, games: false, current: false, ratings: false, orga: false };
   let migrated = false;
   const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); } }, 10000);
+  const fresh = { players: false, ratings: false };
   const done = (k) => {
     seen[k] = true;
     if (seen.players && seen.games && seen.current && seen.ratings && seen.orga) {
       state.loaded = true; clearTimeout(timer);
-      if (!migrated) { migrated = true; migrateLegacy(); pruneMine(); migratePosVotes(); }
+      if (!migrated && fresh.players && fresh.ratings) { migrated = true; migrateLegacy(); migratePosVotes(); }
     }
     render();
   };
   db.collection("ratings").onSnapshot(s => {
     state.ratings = Object.fromEntries(s.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
+    if (!s.metadata || !s.metadata.fromCache) fresh.ratings = true;
     refreshMe(); computeAvg(); done("ratings");
   }, () => done("ratings"));
   db.doc("meta/orga").onSnapshot(s => {
@@ -787,7 +817,9 @@ async function initDb() {
     refreshMe(); computeAvg(); done("orga");
   }, () => done("orga"));
   db.collection("players").onSnapshot(s => {
-    state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })])); computeAvg(); done("players");
+    state.players = Object.fromEntries(s.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })]));
+    if (!s.metadata || !s.metadata.fromCache) fresh.players = true;
+    computeAvg(); done("players");
   }, () => done("players"));
   db.collection("games").onSnapshot(s => {
     state.games = Object.fromEntries(s.docs.map(x => [x.id, { ...x.data(), id: x.id }])); done("games");
