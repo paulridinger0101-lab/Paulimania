@@ -47,6 +47,12 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+html { overscroll-behavior-y: contain; }
+.ptr { position: fixed; left: 50%; top: env(safe-area-inset-top, 0px); z-index: 30; transform: translate(-50%, -60px);
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 99px; padding: 8px 16px;
+  font-size: 14px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.15); transition: transform .2s; pointer-events: none; white-space: nowrap; }
+.ptr.dragging { transition: none; }
+.ptr.ready { color: var(--accent); }
 body {
   background: var(--bg); color: var(--ink);
   font-family: var(--font-body); font-size: 16px; line-height: 1.45;
@@ -290,6 +296,7 @@ details summary { cursor: pointer; font-weight: 600; }
   <div class="wrap" id="view"></div>
 </main>
 <div class="toast" id="toast" hidden></div>
+<div class="ptr" id="ptr" aria-live="polite">↓ Zum Aktualisieren ziehen</div>
 
 <script>
 (() => {
@@ -694,6 +701,57 @@ async function dbWrite(p) {
   try { await p; } catch (e) { toast(e && e.code === "quota_exceeded" ? "Speicher voll: alte Spieltage löschen." : "Speichern fehlgeschlagen. Verbindung prüfen."); }
 }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// Pull down at the top of the page to load the latest data again.
+async function refreshNow() {
+  if (db) {
+    try {
+      const [ps, gs, rs, cur, orga] = await Promise.all([
+        db.collection("players").get(), db.collection("games").get(), db.collection("ratings").get(),
+        db.doc("meta/current").get(), db.doc("meta/orga").get()]);
+      state.players = Object.fromEntries(ps.docs.map(x => [x.id, normPlayer({ ...x.data(), id: x.id })]));
+      state.games = Object.fromEntries(gs.docs.map(x => [x.id, { ...x.data(), id: x.id }]));
+      state.ratings = Object.fromEntries(rs.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
+      state.revoked = (orga.exists && (orga.data() || {}).revoked) || [];
+      if (cur.exists && curSeq === curSaved) state.current = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(cur.data())));
+      refreshMe(); computeAvg();
+    } catch (e) { toast("Aktualisieren hat nicht geklappt. Verbindung prüfen."); return false; }
+  } else { store.loadLocal(); }
+  render(); toast("Aktualisiert"); return true;
+}
+(function pullToRefresh() {
+  const el = document.getElementById("ptr"), GO = 70, MAX = 110;
+  let pull = null, busy = false;
+  const show = (h, text, cls) => {
+    el.style.transform = `translate(-50%, ${Math.round(h - 60)}px)`;
+    el.textContent = text; el.className = "ptr" + (cls ? " " + cls : "");
+  };
+  const reset = () => show(0, "↓ Zum Aktualisieren ziehen", "");
+  window.addEventListener("touchstart", (e) => {
+    if (busy || state.holding || window.scrollY > 0 || e.touches.length !== 1) return;
+    if (e.target.closest && e.target.closest("[data-hold], input, textarea, select, .tablewrap")) return;
+    pull = { y0: e.touches[0].clientY, h: 0 };
+  }, { passive: true });
+  window.addEventListener("touchmove", (e) => {
+    if (!pull) return;
+    if (window.scrollY > 0) { pull = null; return reset(); }
+    const dy = e.touches[0].clientY - pull.y0;
+    pull.h = Math.max(0, Math.min(MAX, dy * 0.5));
+    if (pull.h <= 0) return reset();
+    const ready = pull.h >= GO;
+    show(pull.h, ready ? "↑ Loslassen zum Aktualisieren" : "↓ Zum Aktualisieren ziehen", "dragging" + (ready ? " ready" : ""));
+  }, { passive: true });
+  const end = async () => {
+    if (!pull) return;
+    const go = pull.h >= GO; pull = null;
+    if (!go) return reset();
+    busy = true; show(GO, "Aktualisiere …", "ready");
+    await refreshNow();
+    busy = false; reset();
+  };
+  window.addEventListener("touchend", end);
+  window.addEventListener("touchcancel", () => { pull = null; reset(); });
+})();
 
 async function initDb() {
   if (!window.claude || typeof window.claude.use !== "function") return;
