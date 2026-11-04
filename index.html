@@ -226,6 +226,7 @@ tr.click:hover td { background: var(--bg); }
 .plmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.posnow { display: grid; gap: 2px; padding: 10px 12px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
 .gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
 .mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
 .mynote.warn { background: var(--warn-soft); }
@@ -416,6 +417,45 @@ function orgaOf(p) {
 // Nobody rates himself: an organizer is rated by the other three.
 function requiredRaters(p) { const o = orgaOf(p); return ORGA.filter(n => n !== o); }
 function isSelf(p) { return !!state.me && orgaOf(p) === state.me; }
+// Positions: every organizer gives his own view (not for himself). Main position = most
+// votes (tie: the one named most often overall, then the usual order). Secondary positions =
+// named (as main or secondary) by at least half of those who gave a view.
+function posVotes(p) {
+  const o = orgaOf(p), out = [];
+  for (const rid of activeRaterKeys()) {
+    const r = state.ratings[rid], e = r && r.players && r.players[p.id];
+    if (!e || !e.pos || !POS[e.pos]) continue;
+    if (o && r.name === o) continue;
+    out.push({ pos: e.pos, pos2: (e.pos2 || []).filter(x => POS[x] && x !== e.pos) });
+  }
+  return out;
+}
+function consensus(p) {
+  const shared = { pos: p.sharedPos || "", pos2: (p.sharedPos2 || []).slice() };
+  const votes = posVotes(p);
+  if (!votes.length) return { ...shared, n: 0, main: {} };
+  const main = {}, any = {};
+  for (const v of votes) { main[v.pos] = (main[v.pos] || 0) + 1; for (const x of [v.pos, ...v.pos2]) any[x] = (any[x] || 0) + 1; }
+  const best = Math.max(...Object.values(main));
+  const tied = Object.keys(main).filter(k => main[k] === best);
+  const pos = tied.sort((a, b) => (any[b] - any[a]) || POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b))[0];
+  const need = Math.ceil(votes.length / 2);
+  const pos2 = Object.keys(any).filter(k => k !== pos && any[k] >= need).sort((a, b) => POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b));
+  return { pos, pos2, n: votes.length, main, tie: tied.length > 1 };
+}
+function applyConsensus() {
+  for (const p of Object.values(state.players)) {
+    if (!("sharedPos" in p)) { p.sharedPos = p.pos || ""; p.sharedPos2 = altOf(p).slice(); }
+    const c = consensus(p);
+    p.pos = c.pos; p.pos2 = c.pos2; p.posInfo = { n: c.n, main: c.main, tie: !!c.tie };
+  }
+}
+function posInfoText(p) {
+  const i = p.posInfo || { n: 0, main: {} };
+  if (!i.n) return p.pos ? "noch keine Einschätzungen abgegeben, eingetragen ist der bisherige Stand" : "noch keine Einschätzungen";
+  const dist = Object.entries(i.main).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v}× ${k}`).join(", ");
+  return `Mehrheit aus ${i.n} Einschätzung${i.n === 1 ? "" : "en"} (Hauptposition: ${dist})${i.tie ? `. Gleichstand: Es gilt ${p.pos}, weil sie insgesamt öfter genannt wurde bzw. in der Liste vorne steht` : ""}`;
+}
 function computeAvg() {
   const acc = {};
   const orgaByPid = Object.fromEntries(Object.values(state.players).map(q => [q.id, orgaOf(q)]));
@@ -428,10 +468,13 @@ function computeAvg() {
     e.raters.push(rid); if ((r.date || "") > e.last) e.last = r.date || "";
   }
   state.avg = {};
+  applyConsensus();
   for (const [pid, e] of Object.entries(acc)) state.avg[pid] = { attrs: Object.fromEntries(Object.keys(e.sum).map(k => [k, e.sum[k] / e.cnt[k]])), n: e.raters.length, raters: e.raters, last: e.last };
 }
 function myDoc() { return state.myKey ? state.ratings[state.myKey] : null; }
-function myRating(pid) { return state.me && !isSelf(P(pid)) ? ((myDoc() || {}).players || {})[pid] || null : null; }
+function myEntry(pid) { return state.me ? ((myDoc() || {}).players || {})[pid] || null : null; }
+function myRating(pid) { const e = !isSelf(P(pid)) && myEntry(pid); return e && e.attrs ? e : null; }
+function myPosVote(pid) { const e = !isSelf(P(pid)) && myEntry(pid); return e && e.pos ? e : null; }
 function raterName(rid) { return rid === state.myKey ? "dir" : (state.ratings[rid] && state.ratings[rid].name) || "einem Orga-Mitglied"; }
 function loadMe() { try { const v = localStorage.getItem(ME_KEY); return ORGA.includes(v) ? v : null; } catch (e) { return null; } }
 async function setMe(name) {
@@ -448,7 +491,7 @@ async function setMe(name) {
     state.ratings = { ...state.ratings, [state.userId]: { name, claimedAt: new Date().toISOString(), players } };
     refreshMe(); computeAvg();
     await store.saveMine();
-    await migrateLegacy();
+    await migrateLegacy(); await migratePosVotes();
     toast(`Hallo ${name}. Dein Name ist jetzt fest mit deinem Konto verbunden.`);
     return render();
   }
@@ -585,21 +628,31 @@ function toast(msg) {
 let db = null;
 const store = {
   saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ players: state.players, games: state.games, current: state.current, ratings: state.ratings })); } catch (e) {}
+    const players = Object.fromEntries(Object.values(state.players).map(p => { const o = { ...p }; if ("sharedPos" in o) { o.pos = o.sharedPos; o.pos2 = o.sharedPos2; delete o.sharedPos; delete o.sharedPos2; delete o.posInfo; } return [p.id, o]; }));
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ players, games: state.games, current: state.current, ratings: state.ratings })); } catch (e) {}
   },
   loadLocal() {
     try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
     computeAvg();
   },
-  async putPlayer(p) { state.players[p.id] = p; if (db) await dbWrite(db.collection("players").doc(p.id).set(p)); else this.saveLocal(); },
+  async putPlayer(p) {
+    state.players[p.id] = p;
+    // the shown positions are the majority view; the stored ones stay the shared fallback
+    const out = { ...p };
+    if ("sharedPos" in out) { out.pos = out.sharedPos; out.pos2 = out.sharedPos2; delete out.sharedPos; delete out.sharedPos2; delete out.posInfo; }
+    if (db) await dbWrite(db.collection("players").doc(p.id).set(out)); else this.saveLocal();
+  },
   async delPlayer(id) { delete state.players[id]; if (db) await dbWrite(db.collection("players").doc(id).delete()); else this.saveLocal(); },
   async putGame(g) { state.games[g.id] = g; if (db) await dbWrite(db.collection("games").doc(g.id).set(g)); else this.saveLocal(); },
   async delGame(id) { delete state.games[id]; if (db) await dbWrite(db.collection("games").doc(id).delete()); else this.saveLocal(); },
   async putMyRatings(entries) { // entries: { playerId: attrs }
+    await this.putMyEntries(Object.fromEntries(Object.entries(entries).map(([pid, attrs]) => [pid, { attrs, date: today() }])));
+  },
+  async putMyEntries(entries) { // entries: { playerId: { attrs?, date?, pos?, pos2?, posDate? } } merged into my entry
     if (!state.me || !state.myKey) return;
     const doc = myDoc() || { name: state.me, claimedAt: "", players: {} };
     const players = { ...doc.players };
-    for (const [pid, attrs] of Object.entries(entries)) players[pid] = { attrs, date: today() };
+    for (const [pid, e] of Object.entries(entries)) players[pid] = { ...(players[pid] || {}), ...e };
     state.ratings = { ...state.ratings, [state.myKey]: { ...doc, players } }; computeAvg();
     await this.saveMine();
   },
@@ -652,7 +705,7 @@ async function initDb() {
     seen[k] = true;
     if (seen.players && seen.games && seen.current && seen.ratings && seen.orga) {
       state.loaded = true; clearTimeout(timer);
-      if (!migrated) { migrated = true; migrateLegacy(); pruneMine(); }
+      if (!migrated) { migrated = true; migrateLegacy(); pruneMine(); migratePosVotes(); }
     }
     render();
   };
@@ -682,6 +735,14 @@ async function initDb() {
 }
 
 // Drop my ratings of players that were deleted (only my own document is mine to change).
+async function migratePosVotes() {
+  if (!state.me) return;
+  applyConsensus();
+  const add = {};
+  for (const p of Object.values(state.players))
+    if (p.posBy === state.me && p.sharedPos && !isSelf(p) && !myPosVote(p.id)) add[p.id] = { pos: p.sharedPos, pos2: p.sharedPos2, posDate: p.posAt || today() };
+  if (Object.keys(add).length) await store.putMyEntries(add);
+}
 async function pruneMine() {
   const doc = myDoc(); if (!doc || !state.me) return;
   const gone = Object.keys(doc.players).filter(pid => !state.players[pid]);
@@ -820,6 +881,7 @@ function syncDraft() {
 }
 function render() {
   if (state.holding) { state.pendingRender = true; return; }
+  applyConsensus();
   syncDraft();
   const sel = document.getElementById("whoami");
   if (sel) {
@@ -993,7 +1055,7 @@ function renderPlayers() {
       <div class="plrow ${p.active === false ? "off" : ""}">
         <div class="plmain">
           <b class="plname">${esc(p.name)}</b>
-          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${requiredRaters(p).length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${isSelf(p) ? `<span class="chip">das bist du</span>` : orgaOf(p) ? `<span class="chip plain">Orga</span>` : ""}${n && state.me && !isSelf(p) && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
+          <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}${p.posInfo && Object.keys(p.posInfo.main).length > 1 ? ` <span class="muted">(uneinig)</span>` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${requiredRaters(p).length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${isSelf(p) ? `<span class="chip">das bist du</span>` : orgaOf(p) ? `<span class="chip plain">Orga</span>` : ""}${n && state.me && !isSelf(p) && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
         <div class="plscore"><b>${ovrText(p)}</b>${tr && revealed(p) ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <div class="placts">
@@ -1017,9 +1079,11 @@ function renderEditor() {
   const mine = isNew ? null : myRating(p.id);
   const avg = isNew ? null : state.avg[p.id];
   const round = at => Object.fromEntries(Object.entries(at).map(([k, v]) => [k, Math.min(10, Math.max(1, Math.round(v)))]));
+  const myPos = isNew ? null : myPosVote(p.id);
+  const startPos = myPos ? myPos.pos : p.pos || "", startPos2 = myPos ? (myPos.pos2 || []).slice() : altOf(p).slice();
   const d = state.draft || (state.draft = {
-    ...p, __draft: true, pos2: altOf(p).slice(), touched: false,
-    orig: { name: p.name, pos: p.pos || "", pos2: altOf(p).slice(), active: p.active !== false, orga: orgaOf(p) },
+    ...p, __draft: true, pos: startPos, pos2: startPos2, touched: false,
+    orig: { name: p.name, pos: startPos, pos2: startPos2.slice(), active: p.active !== false, orga: orgaOf(p) },
     orga: orgaOf(p),
     attrs: mine ? attrsOf({ ...p, __draft: true, attrs: mine.attrs })
       : revealed(p) ? round(attrsOf(p))
@@ -1044,19 +1108,21 @@ function renderEditor() {
     <div class="editor">
       <div class="field"><label for="pname">Name</label><input type="text" id="pname" value="${esc(d.name)}" placeholder="z. B. Max K." autocomplete="off"></div>
     </div>
-    ${!isNew && p.posBy ? `<p class="hint" style="margin:0">Positionen zuletzt geändert von ${p.posBy === state.me ? "dir" : esc(p.posBy)} am ${fmtDate(p.posAt)}. Gespeichert werden sie nur, wenn du sie hier änderst.</p>`
-      : !isNew && p.pos ? `<p class="hint" style="margin:0">Positionen werden nur gespeichert, wenn du sie hier änderst.</p>` : ""}
+    ${isNew ? "" : `<div class="posnow"><b>Positionen jetzt: ${p.pos ? `${p.pos}${altOf(p).length ? `, auch ${altOf(p).join(", ")}` : ""}` : "noch keine"}</b>
+      <span class="hint">${posInfoText(p)}</span></div>`}
+    ${!isNew && isSelf(p) ? `<p class="hint" style="margin:0">Deine Positionen schätzen die anderen drei ein.</p>` : `
+    <p class="hint" style="margin:0">${isNew ? "" : myPos ? "Unten steht deine eigene Einschätzung. Es zählt die Mehrheit aller Einschätzungen." : "Unten ist der aktuelle Stand vorausgewählt. Passe ihn an, wenn du es anders siehst. Mit „Speichern“ zählt das als deine Einschätzung."}</p>
     <div class="posgrid">
-      <div class="field"><label>Hauptposition: <span class="posname">${d.pos ? `${d.pos} · ${POS[d.pos]}` : "noch keine"}</span></label>${posPicker("dpos", d.pos, null)}</div>
+      <div class="field"><label>${isNew ? "" : "Deine "}Hauptposition: <span class="posname">${d.pos ? `${d.pos} · ${POS[d.pos]}` : "noch keine"}</span></label>${posPicker("dpos", d.pos, null)}</div>
       <div class="field"><label>Nebenpositionen: <span class="posname">${d.pos2.length ? d.pos2.join(", ") : "keine"}</span></label>
         ${posPicker("dpos2", d.pos2, d.pos)}
         <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
-    </div>
+    </div>`}
     <div class="field"><label>Orga-Mitglied</label><div class="seg">
       <button data-dorga="" aria-pressed="${!d.orga}">Nein</button>
       ${ORGA.map(n => `<button data-dorga="${n}" aria-pressed="${d.orga === n}">${n}</button>`).join("")}</div>
       <span class="hint">Ist dieser Spieler einer von euch vieren? Dann bewerten ihn nur die anderen drei.</span></div>
-    ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}. Name und Positionen kannst du trotzdem ändern.</div>` : `
+    ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}, auch deine Positionen. Deinen Namen kannst du trotzdem ändern.</div>` : `
     <div class="mynote ${(!mine && !isNew) || !state.me ? "warn" : ""}"><b>${state.me ? `Deine Bewertung, ${state.me}.` : "Deine Bewertung."}</b> ${myNote}</div>
     ${d.pos === "TW" ? `<p class="gknote"><b>Torwart-Kriterien.</b> Weil die Hauptposition TW ist, bewertest du ihn als Torwart. Reflexe und Stellungsspiel zählen am meisten.</p>` : ""}
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. ${d.pos === "TW" ? "Torhüter werden nur mit Torhütern verglichen: Beide Teams bekommen möglichst gleich gute Torhüter." : "Spielverständnis und Ballbehandlung zählen am meisten."} Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
@@ -1291,7 +1357,10 @@ view.addEventListener("click", async (e) => {
         if (other) { toast(`${d.orga} ist schon mit ${other.name} verknüpft. Ändere dort zuerst „Orga-Mitglied“ auf „Nein“.`); return; }
       }
       const selfNow = !!state.me && d.orga === state.me;
-      if (!selfNow && (!old || myRating(id) || d.touched)) await store.putMyRatings({ [id]: { ...d.attrs } });
+      const entry = {};
+      if (!selfNow && (!old || myRating(id) || d.touched)) { entry.attrs = { ...d.attrs }; entry.date = today(); }
+      if (!selfNow && d.pos) { entry.pos = d.pos; entry.pos2 = d.pos2.filter(x => x !== d.pos); entry.posDate = today(); }
+      if (Object.keys(entry).length) await store.putMyEntries({ [id]: entry });
       const p = { ...(old || {}), id };
       if (!old) delete p.attrs;
       const o = d.orig || {};
@@ -1301,12 +1370,9 @@ view.addEventListener("click", async (e) => {
       if (!old || name !== o.name) p.name = name;
       if (!old || active !== o.active) p.active = active;
       if (!old || d.orga !== o.orga) p.orga = d.orga;
-      if (posChanged) {
-        // someone else changed the positions while this form was open
-        if (old && ((old.pos || "") !== o.pos || JSON.stringify(altOf(old)) !== JSON.stringify(o.pos2)) && old.posBy && old.posBy !== state.me)
-          setTimeout(() => toast(`Hinweis: ${old.posBy} hatte die Positionen inzwischen auch geändert. Jetzt gilt deine Eingabe.`), 2300);
-        p.pos = d.pos; p.pos2 = newPos2; p.posBy = state.me || ""; p.posAt = today();
-      }
+      if (!old) { p.pos = d.pos; p.pos2 = newPos2; p.sharedPos = d.pos; p.sharedPos2 = newPos2; }
+      void posChanged;
+      state.players[id] = p; applyConsensus();
       const after = ovr(p);
       p.ratedAt = (state.avg[id] && state.avg[id].last) || p.ratedAt || today();
       const history = old && old.history ? old.history.slice() : [];
@@ -1371,7 +1437,7 @@ view.addEventListener("click", async (e) => {
       state.tab = "statistik"; render(); break;
     }
     case "export": {
-      const players = Object.fromEntries(Object.values(state.players).map(p => { const q = { ...p }; if (revealed(p)) q.attrs = attrsOf(p); else delete q.attrs; return [p.id, q]; }));
+      const players = Object.fromEntries(Object.values(state.players).map(p => { const q = { ...p }; delete q.sharedPos; delete q.sharedPos2; delete q.posInfo; if (revealed(p)) q.attrs = attrsOf(p); else delete q.attrs; return [p.id, q]; }));
       const data = JSON.stringify({ app: "paulimania", v: 2, players, games: state.games });
       copyText(data, document.getElementById("backup")); break;
     }
