@@ -243,6 +243,7 @@ tr.click:hover td { background: var(--bg); }
 .ring { display: grid; justify-items: center; gap: 3px; min-width: 0; }
 .ring svg { width: 62px; height: 62px; max-width: 100%; }
 .ring-n { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.plscore .mine { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ring-s { font-size: 12px; font-weight: 600; color: var(--warn); }
 .ring-s.ok { color: var(--accent); }
 .gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
@@ -577,6 +578,11 @@ function revealed(p) {
   return requiredRaters(p).every(n => ratersOf(p).includes(n));
 }
 function missingRaters(p) { const r = ratersOf(p); return requiredRaters(p).filter(n => !r.includes(n)); }
+// My own overall for this player, from my rating only (shown in brackets next to the average).
+function myOvrText(p) {
+  const r = myRating(p.id); if (!r) return "";
+  return ` <span class="mine" title="Deine eigene Wertung">(${f1(ovr({ ...p, __draft: true, attrs: r.attrs }))})</span>`;
+}
 function ovrText(p) { return revealed(p) ? f1(ovr(p)) : isRated(p) ? "?" : "–"; }
 function posHtml(p) { const a = altOf(p); return `<span class="pos">${p.pos || "–"}${a.length ? `<small>/${altShort(p)}</small>` : ""}</span>`; }
 // How much a player covers each position: main 1, "can go in goal" 0.5,
@@ -1185,7 +1191,7 @@ function renderPlayers() {
           <b class="plname">${esc(p.name)}</b>
           <span class="plmeta small muted">${p.pos ? `<span title="${POS[p.pos]}"><b>${p.pos}</b>${alt.length ? ` · auch ${alt.join(", ")}` : ""}${p.posInfo && Object.keys(p.posInfo.main).length > 1 ? ` <span class="muted">(uneinig)</span>` : ""}</span>` : `<span class="chip plain">Position fehlt</span>`}${p.active === false ? `<span class="chip plain">pausiert</span>` : ""}${p.demo ? `<span class="chip plain">Beispiel</span>` : ""}${revealed(p) ? `<span>Ø aus ${n}</span>` : n ? `<span>${ratersOf(p).length} von ${requiredRaters(p).length} haben bewertet · fehlt: ${missingRaters(p).join(", ")}</span>` : `<span class="chip warn">noch nicht bewertet</span>`}${isSelf(p) ? `<span class="chip">das bist du</span>` : orgaOf(p) ? `<span class="chip plain">Orga</span>` : ""}${n && state.me && !isSelf(p) && !myRating(p.id) ? `<span class="chip warn">von dir noch nicht bewertet</span>` : ""}</span>
         </div>
-        <div class="plscore"><b>${ovrText(p)}</b>${tr && revealed(p) ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
+        <div class="plscore"><b>${ovrText(p)}</b>${myOvrText(p)}${tr && revealed(p) ? `<span class="trend ${tr > 0 ? "up" : "down"}">${tr > 0 ? "▲" : "▼"}</span>` : ""}</div>
         <div class="placts">
           <button class="btn small-btn" data-edit="${p.id}">${myRating(p.id) || isSelf(p) ? "Bearbeiten" : "Bewerten"}</button>
           ${state.confirmRow === p.id ? "" : `<button class="btn small-btn ghost danger" data-delrow="${p.id}">Löschen</button>`}
