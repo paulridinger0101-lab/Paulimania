@@ -289,15 +289,9 @@ const POSITIONS = [
   { k: "LV", name: "Linker Verteidiger", line: "ABW" },
   { k: "IV", name: "Innenverteidiger", line: "ABW" },
   { k: "RV", name: "Rechter Verteidiger", line: "ABW" },
-  { k: "LAV", name: "Linker Außenverteidiger, offensiv", line: "ABW" },
-  { k: "RAV", name: "Rechter Außenverteidiger, offensiv", line: "ABW" },
-  { k: "ZDM", name: "Defensives Mittelfeld", line: "MIT" },
-  { k: "LM", name: "Linkes Mittelfeld", line: "MIT" },
   { k: "ZM", name: "Zentrales Mittelfeld", line: "MIT" },
-  { k: "RM", name: "Rechtes Mittelfeld", line: "MIT" },
   { k: "ZOM", name: "Offensives Mittelfeld", line: "MIT" },
   { k: "LF", name: "Linker Flügelstürmer", line: "STU" },
-  { k: "MS", name: "Mittelstürmer, hängende Spitze", line: "STU" },
   { k: "ST", name: "Stürmer", line: "STU" },
   { k: "RF", name: "Rechter Flügelstürmer", line: "STU" },
 ];
@@ -307,7 +301,9 @@ const POS_ORDER = POSITIONS.map(x => x.k);
 const POS = Object.fromEntries(POSITIONS.map(x => [x.k, x.name]));
 const LINE_OF = Object.fromEntries(POSITIONS.map(x => [x.k, x.line]));
 // Players saved before detailed positions existed
-const LEGACY_POS = { ABW: "IV", MIT: "ZM", STU: "ST" };
+// (and positions that were removed later: ZDM, LAV, RAV, LM, RM, MS map to the closest remaining one)
+const LEGACY_POS = { ABW: "IV", MIT: "ZM", STU: "ST", ZDM: "ZM", LAV: "LV", RAV: "RV", LM: "LF", RM: "RF", MS: "ST" };
+function mapPos(x) { return LEGACY_POS[x] || x; }
 function normPlayer(p) {
   if (!p) return p;
   const q = { ...p };
@@ -425,9 +421,10 @@ function posVotes(p) {
   const o = orgaOf(p), out = [];
   for (const rid of activeRaterKeys()) {
     const r = state.ratings[rid], e = r && r.players && r.players[p.id];
-    if (!e || !e.pos || !POS[e.pos]) continue;
+    const vp = e && mapPos(e.pos);
+    if (!vp || !POS[vp]) continue;
     if (o && r.name === o) continue;
-    out.push({ pos: e.pos, pos2: (e.pos2 || []).filter(x => POS[x] && x !== e.pos) });
+    out.push({ pos: vp, pos2: [...new Set((e.pos2 || []).map(mapPos))].filter(x => POS[x] && x !== vp) });
   }
   return out;
 }
@@ -1082,7 +1079,8 @@ function renderEditor() {
   const avg = isNew ? null : state.avg[p.id];
   const round = at => Object.fromEntries(Object.entries(at).map(([k, v]) => [k, Math.min(10, Math.max(1, Math.round(v)))]));
   const myPos = isNew ? null : myPosVote(p.id);
-  const startPos = myPos ? myPos.pos : p.pos || "", startPos2 = myPos ? (myPos.pos2 || []).slice() : altOf(p).slice();
+  const startPos = myPos ? mapPos(myPos.pos) : p.pos || "";
+  const startPos2 = myPos ? [...new Set((myPos.pos2 || []).map(mapPos))].filter(x => POS[x] && x !== startPos) : altOf(p).slice();
   const d = state.draft || (state.draft = {
     ...p, __draft: true, pos: startPos, pos2: startPos2, touched: false,
     orig: { name: p.name, pos: startPos, pos2: startPos2.slice(), active: p.active !== false, orga: orgaOf(p) },
@@ -1277,9 +1275,9 @@ async function copyText(text, fallbackEl) {
 }
 const DEMO = [
   ["Jonas", 7, "TW"], ["Felix", 5, "TW"], ["Lukas", 8, "IV"], ["Tim", 6, "IV"], ["Niklas", 4, "LV"], ["Moritz", 7, "RV"],
-  ["Paul", 6, "IV"], ["Ben", 5, "LAV"], ["Leon", 9, "ZOM"], ["Finn", 6, "ZM"], ["Elias", 5, "LM"], ["Noah", 7, "ZDM"],
-  ["Luis", 4, "RM"], ["David", 8, "ZM"], ["Julian", 6, "ZDM"], ["Max", 5, "RM"], ["Simon", 3, "LM"], ["Erik", 9, "ST"],
-  ["Tom", 6, "LF"], ["Jan", 7, "RF"], ["Kevin", 5, "MS"], ["Marco", 4, "ST"], ["Dennis", 6, "RAV"], ["Sven", 5, "LF"],
+  ["Paul", 6, "IV"], ["Ben", 5, "LV"], ["Leon", 9, "ZOM"], ["Finn", 6, "ZM"], ["Elias", 5, "LF"], ["Noah", 7, "ZM"],
+  ["Luis", 4, "RF"], ["David", 8, "ZM"], ["Julian", 6, "ZM"], ["Max", 5, "RV"], ["Simon", 3, "LF"], ["Erik", 9, "ST"],
+  ["Tom", 6, "LF"], ["Jan", 7, "RF"], ["Kevin", 5, "ST"], ["Marco", 4, "ST"], ["Dennis", 6, "RV"], ["Sven", 5, "ZOM"],
 ];
 
 view.addEventListener("click", async (e) => {
