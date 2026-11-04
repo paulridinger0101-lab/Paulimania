@@ -227,6 +227,12 @@ tr.click:hover td { background: var(--bg); }
 .plscore { display: flex; align-items: baseline; gap: 4px; }
 .plscore b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
 .posnow { display: grid; gap: 2px; padding: 10px 12px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); }
+.selfavg { display: grid; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
+.savg { display: grid; gap: 6px; }
+.savg-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 34px; gap: 10px; align-items: center; font-size: 14px; }
+.savg-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.savg-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.savg-bar i { display: block; height: 100%; background: var(--accent); }
 .gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
 .mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
 .mynote.warn { background: var(--warn-soft); }
@@ -1122,7 +1128,8 @@ function renderEditor() {
       <button data-dorga="" aria-pressed="${!d.orga}">Nein</button>
       ${ORGA.map(n => `<button data-dorga="${n}" aria-pressed="${d.orga === n}">${n}</button>`).join("")}</div>
       <span class="hint">Ist dieser Spieler einer von euch vieren? Dann bewerten ihn nur die anderen drei.</span></div>
-    ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}, auch deine Positionen. Deinen Namen kannst du trotzdem ändern.</div>` : `
+    ${!isNew && isSelf(p) ? `<div class="mynote"><b>Das bist du, ${state.me}.</b> Dich selbst kannst du nicht bewerten. Dich bewerten ${requiredRaters(p).join(", ")}, auch deine Positionen. Deinen Namen kannst du trotzdem ändern.</div>
+    ${selfAverages(p)}` : `
     <div class="mynote ${(!mine && !isNew) || !state.me ? "warn" : ""}"><b>${state.me ? `Deine Bewertung, ${state.me}.` : "Deine Bewertung."}</b> ${myNote}</div>
     ${d.pos === "TW" ? `<p class="gknote"><b>Torwart-Kriterien.</b> Weil die Hauptposition TW ist, bewertest du ihn als Torwart. Reflexe und Stellungsspiel zählen am meisten.</p>` : ""}
     <p class="hint">Jedes Kriterium von 1 bis 10: 1 = Anfänger, 5 = solider Durchschnitt der Runde, 10 = der Beste der Runde. Die Gesamtstärke wird daraus berechnet. ${d.pos === "TW" ? "Torhüter werden nur mit Torhütern verglichen: Beide Teams bekommen möglichst gleich gute Torhüter." : "Spielverständnis und Ballbehandlung zählen am meisten."} Charakter zählt nicht zur Stärke, wird aber gleichmäßig auf beide Teams verteilt.</p>
@@ -1199,6 +1206,20 @@ function renderStats() {
       <div><button class="btn ghost danger" data-delgame="${g.id}">${state.confirmGame === g.id ? "Wirklich löschen?" : "Spieltag löschen"}</button></div>
     </div>`).join("")}
   </section>`;
+}
+
+/* ---------- own averages (only for the organizer himself, once all others rated) ---------- */
+function selfAverages(p) {
+  if (!revealed(p) || !state.avg[p.id]) {
+    const miss = missingRaters(p);
+    return `<div class="selfavg"><b>Deine Durchschnittswerte</b><p class="hint" style="margin:0">Erscheinen, sobald ${requiredRaters(p).join(", ")} dich bewertet haben.${miss.length ? ` Es fehlt noch: ${miss.join(", ")}.` : ""}</p></div>`;
+  }
+  const at = attrsOf(p);
+  return `<div class="selfavg"><b>So habt ihr mich bewertet: Durchschnitt aus ${state.avg[p.id].n} Bewertungen</b>
+    <p class="hint" style="margin:0">Nur der Durchschnitt pro Kriterium. Wer welchen Wert gegeben hat, siehst du nicht.</p>
+    <div class="savg">${attrSet(p.pos).map(a => `<div class="savg-row"><span>${a.name}${a.bal ? ` <span class="muted small">(zählt nicht zur Stärke)</span>` : ""}</span>
+      <div class="savg-bar"><i style="width:${at[a.k] * 10}%"></i></div><b>${f1(at[a.k])}</b></div>`).join("")}</div>
+    <p class="small" style="margin:0">Gesamtstärke: <b>${f1(ovr(p))}</b></p></div>`;
 }
 
 /* ---------- hold to delete ---------- */
