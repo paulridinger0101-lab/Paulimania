@@ -233,6 +233,12 @@ tr.click:hover td { background: var(--bg); }
 .savg-row b { text-align: right; font-variant-numeric: tabular-nums; }
 .savg-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .savg-bar i { display: block; height: 100%; background: var(--accent); }
+.rings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ring { display: grid; justify-items: center; gap: 3px; min-width: 0; }
+.ring svg { width: 62px; height: 62px; max-width: 100%; }
+.ring-n { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ring-s { font-size: 12px; font-weight: 600; color: var(--warn); }
+.ring-s.ok { color: var(--accent); }
 .gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
 .mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
 .mynote.warn { background: var(--warn-soft); }
@@ -1022,6 +1028,32 @@ function renderTeams() {
   </section>`;
 }
 
+// Overview: how many players each organizer has rated (himself excluded).
+function progressPanel(players) {
+  const done = players.filter(revealed).length;
+  const R = 25, C = 2 * Math.PI * R;
+  const rings = ORGA.map(n => {
+    const todo = players.filter(p => orgaOf(p) !== n);
+    const rated = todo.filter(p => ratersOf(p).includes(n)).length;
+    const left = todo.length - rated, ok = left === 0 && todo.length > 0;
+    const off = todo.length ? C * (1 - rated / todo.length) : C;
+    return `<div class="ring" title="${n}: ${rated} von ${todo.length} bewertet">
+      <svg viewBox="0 0 62 62" aria-hidden="true">
+        <circle cx="31" cy="31" r="${R}" fill="none" style="stroke:var(--line)" stroke-width="7"/>
+        <circle cx="31" cy="31" r="${R}" fill="none" style="stroke:var(${ok ? "--accent" : "--warn"})" stroke-width="7" stroke-linecap="round"
+          stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 31 31)"/>
+        <text x="31" y="36.5" text-anchor="middle" style="fill:var(--ink);font-family:var(--font-display);font-weight:700;font-size:17px">${rated}</text>
+      </svg>
+      <span class="ring-n">${n}${n === state.me ? " (du)" : ""}</span>
+      <span class="ring-s ${ok ? "ok" : ""}">${ok ? "fertig" : `noch ${left}`}</span>
+    </div>`;
+  }).join("");
+  return `<section class="panel">
+    <div class="row spread"><h2>Bewertet</h2><span class="hint">${done}/${players.length} Spieler fertig</span></div>
+    <div class="rings" role="list" aria-label="Bewertungsstand pro Orga-Mitglied">${rings}</div>
+  </section>`;
+}
+
 function quickAdd(first) {
   return `<section class="panel">
     <h2>${first ? "Spieler anlegen" : "Spieler hinzufügen"}</h2>
@@ -1039,6 +1071,7 @@ function renderPlayers() {
     ? "Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Er wird fest mit deinem Claude-Konto verbunden, so kann niemand anderes in deinem Namen bewerten."
     : "Damit deine Bewertungen dir zugeordnet werden, wähle einmal deinen Namen. Dieses Gerät merkt sich das. Ändern kannst du es oben bei „Ich bin“.");
   if (state.editing) html += renderEditor();
+  if (players.length) html += progressPanel(players);
   html += quickAdd(!players.length);
   const hasDemo = players.some(p => p.demo);
   const rateable = players.filter(p => !isSelf(p));
