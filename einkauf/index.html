@@ -1,0 +1,549 @@
+<title>Unser Einkauf</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: eine schmale Spalte wie ein Zettel am Kühlschrank; Listen als Reiter oben, Eingabe fest unten (daumennah). */
+:root {
+  --bg: #f1f4f0;
+  --paper: #ffffff;
+  --ink: #18221d;
+  --muted: #64716a;
+  --line: #dde3dd;
+  --accent: #2c7a4b;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2efe6;
+  --marker: #f3d54e;
+  --danger: #b4382f;
+  --shadow: 0 1px 2px rgba(24,34,29,.06), 0 6px 20px rgba(24,34,29,.06);
+  --f-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111613; --paper: #1a211d; --ink: #e6ece7; --muted: #93a198; --line: #2a332e;
+    --accent: #5dbb83; --accent-ink: #0d1a12; --accent-soft: #1f3327; --marker: #c9ac2c;
+    --danger: #e0756c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111613; --paper: #1a211d; --ink: #e6ece7; --muted: #93a198; --line: #2a332e;
+  --accent: #5dbb83; --accent-ink: #0d1a12; --accent-soft: #1f3327; --marker: #c9ac2c;
+  --danger: #e0756c; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap {
+  max-width: 560px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 14px 8px; }
+.titlerow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--f-display); font-weight: 800; font-size: 1.75rem; letter-spacing: -.02em; margin: 0; }
+.status { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
+.status.live .dot { background: var(--accent); }
+
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-block: 10px 2px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; border: 1px solid var(--line); background: var(--paper); border-radius: 999px;
+  padding: 7px 14px; font-weight: 600; font-size: .92rem; display: flex; gap: 7px; align-items: center;
+}
+.tab .n { font-size: .75rem; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tab[aria-selected="true"] .n { color: inherit; opacity: .7; }
+.tab.add { color: var(--muted); border-style: dashed; }
+
+main { padding-block: 6px 200px; }
+
+.group { margin-top: 18px; }
+.group h2 {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
+  font-weight: 600; margin: 0 0 6px 4px; display: flex; gap: 8px; align-items: center;
+}
+.group h2 .sw { width: 9px; height: 9px; border-radius: 3px; }
+.card { background: var(--paper); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.item { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line); min-height: 52px; }
+.item:first-child { border-top: 0; }
+.item .tick {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: none; border: 0; padding: 10px 4px 10px 14px; min-height: 52px;
+}
+.box { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line); display: grid; place-items: center; transition: background .15s, border-color .15s; }
+.box svg { width: 14px; height: 14px; opacity: 0; }
+.txt { min-width: 0; display: flex; flex-direction: column; }
+.name { font-weight: 500; overflow-wrap: anywhere; }
+.qty { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent); margin-right: 6px; }
+.meta { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+.more { flex: none; width: 44px; height: 44px; margin-right: 4px; border: 0; background: none; color: var(--muted); border-radius: 10px; display: grid; place-items: center; }
+.more:hover { background: var(--bg); }
+.item.done .box { background: var(--accent); border-color: var(--accent); }
+.item.done .box svg { opacity: 1; }
+.item.done .name { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--muted); }
+.item.flash { animation: flash 1.2s ease; }
+@keyframes flash { 0%, 40% { background: color-mix(in srgb, var(--marker) 45%, var(--paper)); } 100% { background: var(--paper); } }
+
+.donehead { display: flex; justify-content: space-between; align-items: center; margin: 26px 4px 6px; gap: 12px; }
+.donehead h2 { margin: 0; font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+.link { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: .88rem; padding: 6px 4px; }
+.link.danger { color: var(--danger); }
+
+.empty { text-align: center; padding: 48px 12px 20px; color: var(--muted); }
+.empty strong { display: block; font-family: var(--f-display); font-weight: 600; font-size: 1.25rem; color: var(--ink); margin-bottom: 6px; }
+
+.tools { display: flex; gap: 6px; justify-content: flex-end; margin-top: 22px; flex-wrap: wrap; }
+.chipbtn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 6px 12px; font-size: .85rem; font-weight: 500; }
+
+/* Eingabe unten */
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+.dock .wrap { padding-block: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.sugg { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-height: 0; }
+.sugg::-webkit-scrollbar { display: none; }
+.sugg button { flex: none; border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 5px 11px; font-size: .85rem; }
+.sugg button b { color: var(--accent); font-weight: 600; margin-right: 3px; }
+.sugg .lbl { flex: none; font-size: .75rem; color: var(--muted); align-self: center; margin-right: 2px; }
+form.add { display: flex; gap: 8px; }
+form.add input {
+  flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--paper); border-radius: 12px;
+  padding: 12px 14px; font-size: 1rem;
+}
+form.add button {
+  flex: none; border: 0; background: var(--accent); color: var(--accent-ink); border-radius: 12px;
+  padding: 0 18px; font-weight: 600;
+}
+.hint { font-size: .74rem; color: var(--muted); }
+
+/* Bearbeiten-Blatt */
+.sheet-bg { position: fixed; inset: 0; background: rgba(10,15,12,.4); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  width: 100%; max-width: 560px; background: var(--paper); border-radius: 18px 18px 0 0;
+  padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; gap: 12px; max-height: 90%; overflow-y: auto;
+}
+.sheet h3 { margin: 0; font-family: var(--f-display); font-weight: 600; font-size: 1.2rem; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: .78rem; color: var(--muted); font-weight: 600; }
+.field input, .field select { border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.row2 { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; }
+.btns { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; margin-top: 4px; }
+.btn { border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 10px 16px; font-weight: 600; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.danger { color: var(--danger); }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+  background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: .9rem;
+  z-index: 30; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px);
+}
+.toast button { border: 0; background: none; color: var(--marker); font-weight: 600; padding: 0; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="titlerow">
+      <h1 id="title">Einkauf</h1>
+      <span class="status" id="status"><span class="dot"></span><span id="statusText">verbinde …</span></span>
+    </div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+  </div>
+</header>
+
+<main class="wrap" id="main">
+  <div class="empty"><strong>Listen werden geladen</strong>Gleich siehst du, was auf eurem Zettel steht.</div>
+</main>
+
+<div class="dock">
+  <div class="wrap">
+    <div class="sugg" id="sugg"></div>
+    <form class="add" id="addForm" autocomplete="off">
+      <input id="addInput" placeholder="z. B. 2 Milch, Bananen, 500 g Hack" aria-label="Was fehlt?" enterkeyhint="done">
+      <button type="submit">Dazu</button>
+    </form>
+  </div>
+</div>
+
+<div id="sheetHost"></div>
+<div id="toastHost"></div>
+
+<script>
+// ---------- Kategorien (in Reihenfolge eines typischen Ladens) ----------
+const CATS = [
+  { id: "obst", name: "Obst & Gemüse", color: "#4caf50", words: "apfel äpfel banane birne orange mandarine zitrone limette traube erdbeere himbeere heidelbeere blaubeere kiwi mango ananas melone avocado tomate gurke paprika zucchini aubergine salat rucola spinat brokkoli blumenkohl kohl karotte möhre kartoffel zwiebel knoblauch lauch porree sellerie pilz champignon ingwer kräuter petersilie basilikum schnittlauch radieschen mais kürbis süßkartoffel frühlingszwiebel obst gemüse" },
+  { id: "brot", name: "Brot & Backwaren", color: "#c08a3e", words: "brot brötchen toast baguette brezel croissant semmel knäcke wrap tortilla laugen kuchen" },
+  { id: "kuehl", name: "Kühlregal", color: "#3d8bd4", words: "milch hafermilch sojamilch butter käse gouda mozzarella feta parmesan frischkäse quark joghurt sahne schmand creme crème ei eier wurst schinken salami aufschnitt tofu hummus pudding margarine buttermilch kefir skyr" },
+  { id: "fleisch", name: "Fleisch & Fisch", color: "#c4524a", words: "hack hackfleisch hähnchen huhn pute rind schwein steak schnitzel bratwurst würstchen speck lachs fisch thunfisch garnelen filet gyros" },
+  { id: "vorrat", name: "Vorrat", color: "#9a7b4f", words: "nudeln pasta spaghetti reis mehl zucker salz pfeffer öl olivenöl essig ketchup senf mayo mayonnaise brühe dose tomaten passata linsen bohnen kichererbsen müsli haferflocken cornflakes honig marmelade nutella aufstrich gewürz backpulver hefe soße sauce pesto couscous" },
+  { id: "suess", name: "Süßes & Snacks", color: "#d26aa8", words: "schokolade chips kekse gummibärchen süßigkeit snack nüsse erdnüsse salzstangen popcorn riegel" },
+  { id: "getraenke", name: "Getränke", color: "#2fa3a3", words: "wasser sprudel saft apfelsaft orangensaft cola limo limonade bier wein sekt kaffee tee kakao eistee schorle mate" },
+  { id: "tk", name: "Tiefkühl", color: "#6c8ee0", words: "tk tiefkühl pizza eis pommes erbsen spinat-tk fischstäbchen" },
+  { id: "drogerie", name: "Drogerie & Bad", color: "#8d6cd1", words: "shampoo duschgel seife zahnpasta zahnbürste deo creme sonnencreme rasierer klopapier toilettenpapier taschentücher watte tampons binden windeln feuchttücher pflaster" },
+  { id: "haushalt", name: "Haushalt", color: "#7a8a80", words: "spülmittel waschmittel weichspüler müllbeutel müllsack alufolie frischhaltefolie backpapier schwamm küchenrolle putzmittel reiniger batterien glühbirne kerzen spültabs tabs" },
+  { id: "sonst", name: "Sonstiges", color: "#9aa59f", words: "" },
+];
+const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
+function guessCat(text) {
+  const t = text.toLowerCase();
+  if (/\b(tk|tiefkühl)/.test(t)) return "tk";
+  let best = null, bestLen = 0;
+  for (const c of CATS) for (const w of c.words.split(" ")) {
+    if (w && t.includes(w) && w.length > bestLen) { best = c.id; bestLen = w.length; }
+  }
+  return best || "sonst";
+}
+// "2 Milch", "2x Milch", "500 g Hack", "Milch x3"
+function parseEntry(raw) {
+  let s = raw.trim().replace(/\s+/g, " ");
+  let qty = "";
+  let m = s.match(/^(\d+(?:[.,]\d+)?)\s*(x|stk\.?|stück|g|kg|l|ml|pck\.?|packung(?:en)?|dosen?|flaschen?|bund)?\s+(.+)$/i);
+  if (m) { qty = m[1] + (m[2] ? (/^x$/i.test(m[2]) ? "×" : " " + m[2]) : "×"); s = m[3]; }
+  else if ((m = s.match(/^(.+?)\s*[x×]\s*(\d+)$/i))) { qty = m[2] + "×"; s = m[1]; }
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  return { text: s, qty };
+}
+const keyOf = t => t.trim().toLowerCase();
+
+// ---------- Zustand ----------
+const state = { lists: [], items: [], history: {}, ready: false, me: null, names: {} };
+let activeId = null;
+try { activeId = localStorage.getItem("einkauf.active"); } catch (e) {}
+let backend = null; // {addList, updateList, deleteList, addItem, updateItem, deleteItem, setHistory}
+
+// ---------- Lokaler Fallback (Datei direkt im Browser geöffnet) ----------
+function localBackend() {
+  const K = "einkauf.local";
+  let d;
+  try { d = JSON.parse(localStorage.getItem(K) || "null"); } catch (e) {}
+  if (!d) d = { lists: [{ id: "l1", name: "Einkauf", order: 1 }, { id: "l2", name: "Drogerie", order: 2 }], items: [], history: {} };
+  const save = () => { try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} apply(); };
+  const apply = () => { state.lists = d.lists.slice(); state.items = d.items.slice(); state.history = d.history; state.ready = true; render(); };
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  setTimeout(apply, 0);
+  setStatus(false, "nur auf diesem Gerät");
+  return {
+    addList: async (o) => { d.lists.push({ id: uid(), ...o }); save(); },
+    updateList: async (id, o) => { Object.assign(d.lists.find(l => l.id === id), o); save(); },
+    deleteList: async (id) => { d.lists = d.lists.filter(l => l.id !== id); d.items = d.items.filter(i => i.list !== id); save(); },
+    addItem: async (o) => { d.items.push({ id: uid(), ...o }); save(); },
+    updateItem: async (id, o) => { Object.assign(d.items.find(i => i.id === id) || {}, o); save(); },
+    deleteItem: async (id) => { d.items = d.items.filter(i => i.id !== id); save(); },
+    setHistory: async (h) => { d.history = h; save(); },
+  };
+}
+
+// ---------- Gemeinsamer Speicher ----------
+function dbBackend(db) {
+  const lists = db.collection("lists"), items = db.collection("items"), hist = db.doc("meta/history");
+  let got = 0;
+  const loadTimer = setTimeout(() => { if (!state.ready) { setStatus(false, "keine Verbindung"); renderMessage("Keine Verbindung", "Die Listen konnten nicht geladen werden. Öffne die Seite gleich noch einmal."); } }, 10000);
+  const mark = () => { if (++got >= 3 && !state.ready) { state.ready = true; clearTimeout(loadTimer); setStatus(true, "live geteilt"); } render(); };
+  let seen = { l: false, i: false, h: false };
+  const onErr = (e) => { if (e.code === "revoked" || e.code === "unavailable") setStatus(false, "getrennt"); };
+  lists.onSnapshot(s => { state.lists = s.docs.map(d => ({ id: d.id, ...d.data() })); if (!seen.l) { seen.l = true; mark(); } else render(); }, onErr);
+  items.onSnapshot(s => { state.items = s.docs.map(d => ({ id: d.id, ...d.data() })); if (!seen.i) { seen.i = true; mark(); } else render(); }, onErr);
+  hist.onSnapshot(s => { state.history = (s.exists && s.data().counts) || {}; if (!seen.h) { seen.h = true; mark(); } else render(); }, onErr);
+  const guard = p => p.catch(e => { if (e && e.code === "invalid_argument") toast("Du kannst diese Liste nur ansehen."); else if (e && e.code === "quota_exceeded") toast("Speicher voll: lösche erledigte Einträge."); else toast("Das hat nicht geklappt. Versuch es noch mal."); throw e; });
+  return {
+    addList: o => guard(lists.add(o)),
+    updateList: (id, o) => guard(lists.doc(id).update(o)),
+    deleteList: async id => { await guard(lists.doc(id).delete()); for (const i of state.items.filter(i => i.list === id)) await items.doc(i.id).delete().catch(() => {}); },
+    addItem: o => guard(items.add(o)),
+    updateItem: (id, o) => guard(items.doc(id).update(o)),
+    deleteItem: id => guard(items.doc(id).delete()),
+    setHistory: h => hist.set({ counts: h }).catch(() => {}),
+  };
+}
+
+// ---------- Rendern ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-ink)"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+const DOTS = '<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1.7"/><circle cx="10" cy="10" r="1.7"/><circle cx="16" cy="10" r="1.7"/></svg>';
+
+function setStatus(live, text) { $("status").classList.toggle("live", live); $("statusText").textContent = text; }
+function renderMessage(title, text) { $("main").innerHTML = `<div class="empty"><strong>${esc(title)}</strong>${esc(text)}</div>`; }
+
+function sortedLists() { return state.lists.slice().sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(b.name)); }
+function activeList() {
+  const ls = sortedLists();
+  return ls.find(l => l.id === activeId) || ls[0] || null;
+}
+function ago(ts) {
+  if (!ts) return "";
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "gerade";
+  if (m < 60) return `vor ${m} Min.`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `vor ${h} Std.`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "gestern" : `vor ${d} Tagen`;
+}
+function who(id) { if (!id) return ""; if (state.me && id === state.me) return "dir"; return state.names[id] || ""; }
+
+let flashId = null;
+function render() {
+  if (!state.ready) return;
+  const ls = sortedLists();
+  const cur = activeList();
+  if (cur) activeId = cur.id;
+
+  $("tabs").innerHTML = ls.map(l => {
+    const n = state.items.filter(i => i.list === l.id && !i.done).length;
+    return `<button class="tab" role="tab" aria-selected="${cur && l.id === cur.id}" data-list="${esc(l.id)}">${esc(l.name)}<span class="n">${n || ""}</span></button>`;
+  }).join("") + `<button class="tab add" id="newList" aria-label="Neue Liste">+ Liste</button>`;
+  $("title").textContent = cur ? cur.name : "Einkauf";
+
+  if (!cur) {
+    renderMessage("Noch keine Liste", "Leg oben mit „+ Liste“ eure erste Liste an, zum Beispiel „Einkauf“.");
+    $("addForm").hidden = true; $("sugg").innerHTML = ""; return;
+  }
+  $("addForm").hidden = false;
+
+  const mine = state.items.filter(i => i.list === cur.id);
+  const open = mine.filter(i => !i.done).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const done = mine.filter(i => i.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+
+  let html = "";
+  if (!open.length && !done.length) {
+    html = `<div class="empty"><strong>Alles da</strong>Auf „${esc(cur.name)}“ steht gerade nichts. Unten eintippen, was fehlt.</div>`;
+  } else if (!open.length) {
+    html = `<div class="empty"><strong>Alles im Wagen</strong>Fertig eingekauft. Räum die Liste unten auf.</div>`;
+  }
+  for (const c of CATS) {
+    const g = open.filter(i => (i.cat || "sonst") === c.id);
+    if (!g.length) continue;
+    html += `<section class="group"><h2><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</h2><div class="card">${g.map(itemRow).join("")}</div></section>`;
+  }
+  if (done.length) {
+    html += `<div class="donehead"><h2>Im Wagen · ${done.length}</h2><button class="link danger" id="clearDone">Abgehakte löschen</button></div>
+      <div class="card">${done.map(itemRow).join("")}</div>`;
+  }
+  if (open.length) html += `<div class="tools"><button class="chipbtn" id="copyList">Als Text kopieren</button><button class="chipbtn" id="editList">Liste umbenennen</button></div>`;
+  else html += `<div class="tools"><button class="chipbtn" id="editList">Liste umbenennen</button></div>`;
+  $("main").innerHTML = html;
+  if (flashId) { const el = document.querySelector(`[data-item="${CSS.escape(flashId)}"]`); if (el) { el.classList.add("flash"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } flashId = null; }
+  renderSugg();
+  resolveNames();
+}
+function itemRow(i) {
+  const by = who(i.by);
+  const meta = [i.note, i.done ? "" : (by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : "")].filter(Boolean).join(" · ");
+  return `<div class="item${i.done ? " done" : ""}" data-item="${esc(i.id)}">
+    <button class="tick" data-toggle="${esc(i.id)}" aria-pressed="${!!i.done}">
+      <span class="box">${CHECK}</span>
+      <span class="txt"><span class="name">${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ""}${esc(i.text)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</span>
+    </button>
+    <button class="more" data-edit="${esc(i.id)}" aria-label="${esc(i.text)} bearbeiten">${DOTS}</button>
+  </div>`;
+}
+function renderSugg() {
+  const cur = activeList(); if (!cur) return;
+  const q = keyOf($("addInput").value);
+  const onList = new Set(state.items.filter(i => i.list === cur.id && !i.done).map(i => keyOf(i.text)));
+  const entries = Object.entries(state.history)
+    .filter(([k, v]) => !onList.has(k) && (!v.list || v.list === cur.id))
+    .sort((a, b) => b[1].n - a[1].n);
+  let pick, lbl;
+  if (q) { pick = entries.filter(([k]) => k.includes(q) && k !== q).slice(0, 8); lbl = ""; }
+  else { pick = entries.slice(0, 10); lbl = pick.length ? "Oft gekauft" : ""; }
+  $("sugg").innerHTML = (lbl ? `<span class="lbl">${lbl}</span>` : "") + pick.map(([k, v]) => `<button type="button" data-sugg="${esc(v.text)}"><b>+</b>${esc(v.text)}</button>`).join("");
+  $("sugg").hidden = !pick.length;
+}
+
+// Namen der Mitmacher (nur Anzeige; gespeichert wird nur die ID)
+let userCap = null;
+async function resolveNames() {
+  if (!userCap) return;
+  const ids = [...new Set(state.items.map(i => i.by).filter(Boolean))].filter(id => !(id in state.names) && id !== state.me);
+  if (!ids.length) return;
+  try {
+    const ps = await userCap.profiles(ids);
+    let changed = false;
+    for (const id of ids) { const n = (ps[id] && ps[id].name || "").split(" ")[0]; state.names[id] = n; if (n) changed = true; }
+    if (changed) render();
+  } catch (e) {}
+}
+
+// ---------- Aktionen ----------
+async function addEntry(raw) {
+  const cur = activeList(); if (!cur || !raw.trim()) return;
+  const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  const hist = { ...state.history };
+  for (const p of parts) {
+    const { text, qty } = parseEntry(p);
+    const k = keyOf(text);
+    const existing = state.items.find(i => i.list === cur.id && keyOf(i.text) === k);
+    if (existing && !existing.done) { flashId = existing.id; toast(`${text} steht schon drauf.`); render(); continue; }
+    const cat = (hist[k] && hist[k].cat) || guessCat(text);
+    if (existing && existing.done) {
+      await backend.updateItem(existing.id, { done: false, doneAt: null, qty: qty || existing.qty || "", at: Date.now(), by: state.me || null });
+    } else {
+      await backend.addItem({ list: cur.id, text, qty, cat, note: "", done: false, at: Date.now(), by: state.me || null });
+    }
+    hist[k] = { text, cat, n: ((hist[k] && hist[k].n) || 0) + 1, list: cur.id };
+  }
+  backend.setHistory(trimHistory(hist));
+}
+function trimHistory(h) {
+  const e = Object.entries(h).sort((a, b) => b[1].n - a[1].n).slice(0, 300);
+  return Object.fromEntries(e);
+}
+function toggle(id) {
+  const i = state.items.find(x => x.id === id); if (!i) return;
+  backend.updateItem(id, i.done ? { done: false, doneAt: null } : { done: true, doneAt: Date.now() });
+}
+async function clearDone() {
+  const cur = activeList();
+  const done = state.items.filter(i => i.list === cur.id && i.done);
+  const saved = done.map(i => ({ ...i }));
+  for (const i of done) await backend.deleteItem(i.id);
+  toast(`${done.length} gelöscht.`, "Rückgängig", async () => {
+    for (const i of saved) { const { id, ...rest } = i; await backend.addItem(rest); }
+  });
+}
+async function copyList() {
+  const cur = activeList();
+  const open = state.items.filter(i => i.list === cur.id && !i.done);
+  let txt = `${cur.name}:\n`;
+  for (const c of CATS) {
+    const g = open.filter(i => (i.cat || "sonst") === c.id);
+    if (!g.length) continue;
+    txt += `\n${c.name}\n` + g.map(i => `• ${i.qty ? i.qty + " " : ""}${i.text}${i.note ? " (" + i.note + ")" : ""}`).join("\n") + "\n";
+  }
+  try { await navigator.clipboard.writeText(txt.trim()); toast("Liste kopiert. In WhatsApp einfügen."); }
+  catch (e) { openSheet(`<h3>Liste als Text</h3><textarea id="copyArea" style="width:100%;min-height:220px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);font:inherit">${esc(txt.trim())}</textarea><div class="btns"><span></span><button class="btn primary" data-close>Fertig</button></div>`); const a = $("copyArea"); a.focus(); a.select(); }
+}
+
+// ---------- Blätter (Bearbeiten, Listen) ----------
+function openSheet(inner, onReady) {
+  $("sheetHost").innerHTML = `<div class="sheet-bg" id="sheetBg"><div class="sheet" role="dialog" aria-modal="true">${inner}</div></div>`;
+  $("sheetBg").addEventListener("click", e => { if (e.target.id === "sheetBg" || e.target.closest("[data-close]")) closeSheet(); });
+  onReady && onReady();
+}
+function closeSheet() { $("sheetHost").innerHTML = ""; }
+
+function editItem(id) {
+  const i = state.items.find(x => x.id === id); if (!i) return;
+  const ls = sortedLists();
+  openSheet(`
+    <h3>Eintrag bearbeiten</h3>
+    <div class="field"><label for="eText">Was</label><input id="eText" value="${esc(i.text)}"></div>
+    <div class="row2">
+      <div class="field"><label for="eQty">Menge</label><input id="eQty" value="${esc(i.qty)}" placeholder="z. B. 2×"></div>
+      <div class="field"><label for="eCat">Abteilung</label><select id="eCat">${CATS.map(c => `<option value="${c.id}"${(i.cat || "sonst") === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label for="eNote">Notiz</label><input id="eNote" value="${esc(i.note)}" placeholder="z. B. die laktosefreie, im Angebot"></div>
+    ${ls.length > 1 ? `<div class="field"><label for="eList">Liste</label><select id="eList">${ls.map(l => `<option value="${esc(l.id)}"${l.id === i.list ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>` : ""}
+    <div class="btns">
+      <button class="btn danger" id="eDel">Löschen</button>
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="eSave">Speichern</button></span>
+    </div>`, () => {
+    $("eSave").onclick = () => {
+      const text = $("eText").value.trim(); if (!text) return;
+      const o = { text, qty: $("eQty").value.trim(), cat: $("eCat").value, note: $("eNote").value.trim() };
+      if ($("eList")) o.list = $("eList").value;
+      backend.updateItem(id, o);
+      const k = keyOf(text), h = { ...state.history };
+      if (h[k]) { h[k] = { ...h[k], cat: o.cat }; backend.setHistory(h); }
+      closeSheet();
+    };
+    $("eDel").onclick = () => {
+      const copy = { ...i }; closeSheet(); backend.deleteItem(id);
+      toast(`${i.text} gelöscht.`, "Rückgängig", () => { const { id: _, ...rest } = copy; backend.addItem(rest); });
+    };
+  });
+}
+function listSheet(l) {
+  const isNew = !l;
+  openSheet(`
+    <h3>${isNew ? "Neue Liste" : "Liste bearbeiten"}</h3>
+    <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="z. B. Drogerie, Baumarkt, Party"></div>
+    <div class="btns">
+      ${isNew ? "<span></span>" : `<button class="btn danger" id="lDel">Liste löschen</button>`}
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="lSave">${isNew ? "Anlegen" : "Speichern"}</button></span>
+    </div>
+    <div id="lConfirm"></div>`, () => {
+    $("lName").focus();
+    const save = async () => {
+      const name = $("lName").value.trim(); if (!name) return;
+      if (isNew) {
+        const order = Math.max(0, ...state.lists.map(x => x.order || 0)) + 1;
+        await backend.addList({ name, order });
+        const nl = state.lists.find(x => x.name === name); if (nl) setActive(nl.id);
+      } else await backend.updateList(l.id, { name });
+      closeSheet();
+    };
+    $("lSave").onclick = save;
+    $("lName").onkeydown = e => { if (e.key === "Enter") save(); };
+    if (!isNew) $("lDel").onclick = () => {
+      const n = state.items.filter(i => i.list === l.id).length;
+      $("lConfirm").innerHTML = `<p style="margin:4px 0;color:var(--danger)">„${esc(l.name)}“ ${n ? `und ${n} Einträge ` : ""}endgültig löschen?</p><button class="btn danger" id="lDel2">Ja, löschen</button>`;
+      $("lDel2").onclick = async () => { closeSheet(); await backend.deleteList(l.id); activeId = null; render(); };
+    };
+  });
+}
+function setActive(id) { activeId = id; try { localStorage.setItem("einkauf.active", id); } catch (e) {} render(); window.scrollTo({ top: 0 }); }
+
+let toastTimer;
+function toast(msg, actLabel, act) {
+  clearTimeout(toastTimer);
+  $("toastHost").innerHTML = `<div class="toast" role="status"><span>${esc(msg)}</span>${actLabel ? `<button id="toastAct">${esc(actLabel)}</button>` : ""}</div>`;
+  if (actLabel) $("toastAct").onclick = () => { $("toastHost").innerHTML = ""; act(); };
+  toastTimer = setTimeout(() => { $("toastHost").innerHTML = ""; }, actLabel ? 6000 : 2600);
+}
+
+// ---------- Events ----------
+document.addEventListener("click", e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.list) setActive(t.dataset.list);
+  else if (t.id === "newList") listSheet(null);
+  else if (t.id === "editList") listSheet(activeList());
+  else if (t.dataset.toggle) toggle(t.dataset.toggle);
+  else if (t.dataset.edit) editItem(t.dataset.edit);
+  else if (t.id === "clearDone") clearDone();
+  else if (t.id === "copyList") copyList();
+  else if (t.dataset.sugg) { addEntry(t.dataset.sugg); $("addInput").value = ""; renderSugg(); }
+});
+$("addForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("addInput").value; $("addInput").value = "";
+  addEntry(v); renderSugg();
+});
+$("addInput").addEventListener("input", renderSugg);
+setInterval(() => { if (state.ready && !$("sheetHost").innerHTML) render(); }, 60000);
+
+// ---------- Start ----------
+(async () => {
+  const db = window.claude && window.claude.use ? await window.claude.use("db").catch(() => null) : null;
+  if (db) {
+    backend = dbBackend(db);
+    try {
+      userCap = await window.claude.use("user");
+      if (userCap) { state.me = await userCap.id(); render(); }
+    } catch (e) {}
+  } else {
+    backend = localBackend();
+  }
+})();
+</script>
