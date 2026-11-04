@@ -398,12 +398,19 @@ function refreshMe() {
 // Which player is an organizer: set in the player form, or by first name
 // ("Kevin Eckert" -> Kevin) when exactly one player has that first name.
 function firstName(p) { return ((p && p.name) || "").trim().split(/\s+/)[0].toLowerCase(); }
+// The organizers' own player entries, by full name (first names alone are not unique:
+// there is more than one Paul and one Jonas in the squad).
+const ORGA_PLAYER = { Paul: "paul ridinger", Louis: "louis bankowski", Kevin: "kevin eckert", Jonas: "jonas hipke" };
+function fullName(p) { return ((p && p.name) || "").trim().replace(/\s+/g, " ").toLowerCase(); }
 function orgaOf(p) {
   if (!p) return "";
   if (typeof p.orga === "string") return p.orga;
-  const n = ORGA.find(o => o.toLowerCase() === firstName(p)); if (!n) return "";
   const all = Object.values(state.players);
-  if (all.some(q => q.orga === n)) return "";
+  const byFull = ORGA.find(o => ORGA_PLAYER[o] === fullName(p));
+  if (byFull) return all.some(q => q.orga === byFull) ? "" : byFull;
+  const n = ORGA.find(o => o.toLowerCase() === firstName(p)); if (!n) return "";
+  // first name only counts if that organizer has no entry under his full name
+  if (all.some(q => q.orga === n || (typeof q.orga !== "string" && ORGA_PLAYER[n] === fullName(q)))) return "";
   return all.filter(q => typeof q.orga !== "string" && firstName(q) === firstName(p)).length === 1 ? n : "";
 }
 // Nobody rates himself: an organizer is rated by the other three.
