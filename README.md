@@ -23,3 +23,14 @@ Als claude.ai-Artifact veröffentlicht, nutzt die App einen gemeinsamen Speicher
 
 2. Link für alle Spieler zum Zu- und Absagen, mit Vorrecht-Frist und Warteliste.
 3. Stärkewerte passen sich anhand der Ergebnisse automatisch an.
+
+---
+
+# Unser Einkauf (`einkauf/`)
+
+Gemeinsame Einkaufsliste mit einer Liste pro Markt (Rewe, Aldi, Lidl, Kaufland, DM, Egal wo). Läuft über GitHub Pages ohne Anmeldung, die Daten liegen in Firebase Firestore und gleichen sich live zwischen allen Handys ab, auch offline im Laden.
+
+- Adresse: https://paulridinger0101-lab.github.io/Paulimania/einkauf/
+- Wer den Link mit dem Haushalts-Code (`#…`) hat, kann mitschreiben.
+- Firebase-Zugangsdaten stehen oben in `einkauf/index.html` (`FIREBASE_CONFIG`), die Sicherheitsregeln in `einkauf/firestore.rules`.
+- Ohne `FIREBASE_CONFIG` speichert die App nur im Browser des jeweiligen Geräts.

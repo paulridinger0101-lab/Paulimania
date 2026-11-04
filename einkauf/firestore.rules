@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Jeder Haushalt liegt unter h/<Code>. Den Code kennt nur, wer den Link hat.
+    // Die Übersicht aller Haushalte ist nicht lesbar, nur die Listen eines bekannten Codes.
+    match /h/{code}/{coll}/{docId} {
+      allow read, write: if code.size() >= 20 && coll in ['lists', 'items', 'meta'];
+    }
+  }
+}

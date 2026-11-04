@@ -1,5 +1,15 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Unser Einkauf</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Einkauf">
+<meta name="theme-color" content="#f1f4f0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232c7a4b'/%3E%3Cpath d='M14 18h6l5 22h20l5-15H23' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='28' cy='48' r='3.5' fill='white'/%3E%3Ccircle cx='43' cy='48' r='3.5' fill='white'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap">
 <style>
@@ -34,8 +44,11 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+:root { padding-top: env(safe-area-inset-top, 0px); }
 html, body { height: 100%; }
 body {
+  margin: 0;
   background: var(--bg); color: var(--ink);
   font-family: var(--f-body); font-size: 16px; line-height: 1.4;
   -webkit-tap-highlight-color: transparent;
@@ -158,7 +171,12 @@ form.add button {
 }
 .toast button { border: 0; background: none; color: var(--marker); font-weight: 600; padding: 0; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+.setup { padding-block: 40px 20px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.setup h2 { font-family: var(--f-display); font-weight: 800; font-size: 1.5rem; margin: 0; text-wrap: balance; }
+.setup p { margin: 0; color: var(--muted); max-width: 46ch; }
 </style>
+</head>
+<body>
 
 <header class="top">
   <div class="wrap">
@@ -188,6 +206,11 @@ form.add button {
 <div id="toastHost"></div>
 
 <script>
+// ---------- Firebase-Zugang (für GitHub Pages) ----------
+// Hier die Web-App-Konfiguration aus der Firebase-Konsole eintragen.
+// Diese Werte sind nicht geheim; geschützt wird die Liste über den Haushalts-Code im Link.
+const FIREBASE_CONFIG = null;
+
 // ---------- Kategorien (in Reihenfolge eines typischen Ladens) ----------
 const CATS = [
   { id: "obst", name: "Obst & Gemüse", color: "#4caf50", words: "apfel äpfel banane birne orange mandarine zitrone limette traube erdbeere himbeere heidelbeere blaubeere kiwi mango ananas melone avocado tomate gurke paprika zucchini aubergine salat rucola spinat brokkoli blumenkohl kohl karotte möhre kartoffel zwiebel knoblauch lauch porree sellerie pilz champignon ingwer kräuter petersilie basilikum schnittlauch radieschen mais kürbis süßkartoffel frühlingszwiebel obst gemüse" },
@@ -236,7 +259,7 @@ function localBackend() {
   const K = "einkauf.local";
   let d;
   try { d = JSON.parse(localStorage.getItem(K) || "null"); } catch (e) {}
-  if (!d) d = { lists: [{ id: "l1", name: "Einkauf", order: 1 }, { id: "l2", name: "Drogerie", order: 2 }], items: [], history: {} };
+  if (!d) d = { lists: MARKETS.map(([id, name], i) => ({ id, name, order: i + 1 })), items: [], history: {} };
   const save = () => { try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} apply(); };
   const apply = () => { state.lists = d.lists.slice(); state.items = d.items.slice(); state.history = d.history; state.ready = true; render(); };
   const uid = () => Math.random().toString(36).slice(2, 10);
@@ -276,6 +299,104 @@ function dbBackend(db) {
   };
 }
 
+// ---------- Firebase (GitHub-Pages-Version) ----------
+const MARKETS = [["rewe", "Rewe"], ["aldi", "Aldi"], ["lidl", "Lidl"], ["kaufland", "Kaufland"], ["dm", "DM"], ["egal", "Egal wo"]];
+let mode = "local";
+function householdCode() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (/^[A-Za-z0-9]{20,64}$/.test(h)) { try { localStorage.setItem("einkauf.household", h); } catch (e) {} return h; }
+  let c = null; try { c = localStorage.getItem("einkauf.household"); } catch (e) {}
+  if (c) history.replaceState(null, "", "#" + c);
+  return c;
+}
+function newCode() {
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const r = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(r, b => a[b % a.length]).join("");
+}
+function shareUrl() { return location.origin + location.pathname + location.hash; }
+function renderSetup() {
+  setStatus(false, "nicht verbunden");
+  $("tabs").innerHTML = ""; $("addForm").hidden = true; $("sugg").hidden = true;
+  $("main").innerHTML = `<div class="setup">
+    <h2>Eure gemeinsame Einkaufsliste</h2>
+    <p>Hast du einen Link bekommen? Dann öffne einfach diesen Link, und du bist sofort drin.</p>
+    <p>Du richtest die Liste zum ersten Mal ein? Dann leg hier euren Haushalt an und schick den Link danach an alle, die mitmachen sollen.</p>
+    <button class="btn primary" id="createHousehold">Haushalt anlegen</button>
+  </div>`;
+  $("createHousehold").onclick = () => { location.hash = newCode(); location.reload(); };
+}
+async function shareLink() {
+  const url = shareUrl();
+  if (navigator.share) { try { await navigator.share({ title: "Unser Einkauf", text: "Unsere gemeinsame Einkaufsliste:", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+  try { await navigator.clipboard.writeText(url); toast("Link kopiert. Schick ihn per WhatsApp."); }
+  catch (e) { openSheet(`<h3>Link zur Liste</h3><p style="margin:0;color:var(--muted)">Wer diesen Link hat, kann mitschreiben. Gib ihn nur an Leute aus eurem Haushalt.</p><input id="linkBox" readonly value="${esc(url)}" style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg)"><div class="btns"><span></span><button class="btn primary" data-close>Fertig</button></div>`); $("linkBox").select(); }
+}
+function askName(force) {
+  if (state.me && !force) return;
+  openSheet(`<h3>Wie heißt du?</h3>
+    <p style="margin:0;color:var(--muted)">Dann sehen die anderen, wer was eingetragen hat.</p>
+    <div class="field"><label for="meName">Vorname</label><input id="meName" value="${esc(state.me || "")}" placeholder="z. B. Paul"></div>
+    <div class="btns"><button class="btn" data-close>Später</button><button class="btn primary" id="meSave">Speichern</button></div>`, () => {
+    const save = () => { const n = $("meName").value.trim(); if (!n) return; state.me = n; try { localStorage.setItem("einkauf.name", n); } catch (e) {} closeSheet(); render(); };
+    $("meSave").onclick = save; $("meName").onkeydown = e => { if (e.key === "Enter") save(); };
+    $("meName").focus();
+  });
+}
+async function startFirebase() {
+  const code = householdCode();
+  if (!code) { renderSetup(); return; }
+  mode = "fb";
+  try { state.me = localStorage.getItem("einkauf.name"); } catch (e) {}
+  const V = "10.12.2";
+  let F;
+  try {
+    const [appMod, fsMod] = await Promise.all([
+      import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
+      import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`),
+    ]);
+    F = { ...appMod, ...fsMod };
+  } catch (e) { setStatus(false, "keine Verbindung"); renderMessage("Keine Verbindung", "Die App konnte nicht geladen werden. Prüf das Internet und öffne die Seite neu."); return; }
+  const app = F.initializeApp(FIREBASE_CONFIG);
+  let fs;
+  try { fs = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+  catch (e) { fs = F.getFirestore(app); }
+  const base = "h/" + code;
+  const listsC = F.collection(fs, base + "/lists"), itemsC = F.collection(fs, base + "/items");
+  const histD = F.doc(fs, base + "/meta/history"), infoD = F.doc(fs, base + "/meta/info");
+
+  // Neuer Haushalt: Märkte einmalig anlegen (feste IDs, doppeltes Anlegen schadet nicht)
+  F.getDoc(infoD).then(async s => {
+    if (s.exists()) return;
+    await Promise.all(MARKETS.map(([id, name], i) => F.setDoc(F.doc(listsC, id), { name, order: i + 1 })));
+    await F.setDoc(infoD, { created: Date.now() });
+  }).catch(() => {});
+
+  let seen = { l: false, i: false, h: false };
+  const loadTimer = setTimeout(() => { if (!state.ready) { setStatus(false, "keine Verbindung"); renderMessage("Keine Verbindung", "Die Liste konnte nicht geladen werden. Prüf das Internet und öffne die Seite neu."); } }, 10000);
+  const mark = (k) => { if (!seen[k]) { seen[k] = true; if (seen.l && seen.i && seen.h) { state.ready = true; clearTimeout(loadTimer); setTimeout(() => askName(false), 400); } } render(); };
+  const onErr = e => { console.error(e); setStatus(false, e && e.code === "permission-denied" ? "kein Zugriff" : "getrennt"); if (e && e.code === "permission-denied") renderMessage("Kein Zugriff", "Der Link ist ungültig oder die Firebase-Regeln fehlen."); };
+  F.onSnapshot(listsC, s => { state.lists = s.docs.map(d => ({ id: d.id, ...d.data() })); mark("l"); }, onErr);
+  F.onSnapshot(itemsC, { includeMetadataChanges: true }, s => {
+    setStatus(!s.metadata.fromCache, s.metadata.fromCache ? "offline, wird nachgeholt" : "live geteilt");
+    state.items = s.docs.map(d => ({ id: d.id, ...d.data() })); mark("i");
+  }, onErr);
+  F.onSnapshot(histD, s => { state.history = (s.exists() && s.data().counts) || {}; mark("h"); }, onErr);
+
+  // Offline: nicht auf den Server warten, Änderungen werden nachgereicht
+  const fail = e => { console.error(e); toast("Das hat nicht geklappt. Versuch es noch mal."); };
+  const bg = p => { p.catch(fail); return Promise.resolve(); };
+  backend = {
+    addList: o => bg(F.addDoc(listsC, o)),
+    updateList: (id, o) => bg(F.updateDoc(F.doc(listsC, id), o)),
+    deleteList: id => { bg(F.deleteDoc(F.doc(listsC, id))); for (const i of state.items.filter(i => i.list === id)) bg(F.deleteDoc(F.doc(itemsC, i.id))); return Promise.resolve(); },
+    addItem: o => bg(F.addDoc(itemsC, o)),
+    updateItem: (id, o) => bg(F.updateDoc(F.doc(itemsC, id), o)),
+    deleteItem: id => bg(F.deleteDoc(F.doc(itemsC, id))),
+    setHistory: h => bg(F.setDoc(histD, { counts: h })),
+  };
+}
+
 // ---------- Rendern ----------
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -300,7 +421,7 @@ function ago(ts) {
   const d = Math.round(h / 24);
   return d === 1 ? "gestern" : `vor ${d} Tagen`;
 }
-function who(id) { if (!id) return ""; if (state.me && id === state.me) return "dir"; return state.names[id] || ""; }
+function who(id) { if (!id) return ""; if (state.me && id === state.me) return "dir"; return mode === "fb" ? id : (state.names[id] || ""); }
 
 let flashId = null;
 function render() {
@@ -340,8 +461,8 @@ function render() {
     html += `<div class="donehead"><h2>Im Wagen · ${done.length}</h2><button class="link danger" id="clearDone">Abgehakte löschen</button></div>
       <div class="card">${done.map(itemRow).join("")}</div>`;
   }
-  if (open.length) html += `<div class="tools"><button class="chipbtn" id="copyList">Als Text kopieren</button><button class="chipbtn" id="editList">Liste umbenennen</button></div>`;
-  else html += `<div class="tools"><button class="chipbtn" id="editList">Liste umbenennen</button></div>`;
+  const extra = mode === "fb" ? `<button class="chipbtn" id="shareLink">Link teilen</button><button class="chipbtn" id="changeName">${state.me ? "Ich bin " + esc(state.me) : "Name eintragen"}</button>` : "";
+  html += `<div class="tools">${open.length ? `<button class="chipbtn" id="copyList">Als Text kopieren</button>` : ""}<button class="chipbtn" id="editList">Liste umbenennen</button>${extra}</div>`;
   $("main").innerHTML = html;
   if (flashId) { const el = document.querySelector(`[data-item="${CSS.escape(flashId)}"]`); if (el) { el.classList.add("flash"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } flashId = null; }
   renderSugg();
@@ -524,6 +645,8 @@ document.addEventListener("click", e => {
   else if (t.dataset.edit) editItem(t.dataset.edit);
   else if (t.id === "clearDone") clearDone();
   else if (t.id === "copyList") copyList();
+  else if (t.id === "shareLink") shareLink();
+  else if (t.id === "changeName") askName(true);
   else if (t.dataset.sugg) { addEntry(t.dataset.sugg); $("addInput").value = ""; renderSugg(); }
 });
 $("addForm").addEventListener("submit", e => {
@@ -535,8 +658,11 @@ $("addInput").addEventListener("input", renderSugg);
 setInterval(() => { if (state.ready && !$("sheetHost").innerHTML) render(); }, 60000);
 
 // ---------- Start ----------
+window.addEventListener("hashchange", () => { if (mode === "fb" || FIREBASE_CONFIG) location.reload(); });
 (async () => {
-  const db = window.claude && window.claude.use ? await window.claude.use("db").catch(() => null) : null;
+  const inArtifact = !!(window.claude && window.claude.use);
+  if (!inArtifact && FIREBASE_CONFIG) { await startFirebase(); return; }
+  const db = inArtifact ? await window.claude.use("db").catch(() => null) : null;
   if (db) {
     backend = dbBackend(db);
     try {
@@ -548,3 +674,5 @@ setInterval(() => { if (state.ready && !$("sheetHost").innerHTML) render(); }, 6
   }
 })();
 </script>
+</body>
+</html>
