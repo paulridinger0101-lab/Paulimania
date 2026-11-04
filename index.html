@@ -417,9 +417,10 @@ function orgaOf(p) {
 // Nobody rates himself: an organizer is rated by the other three.
 function requiredRaters(p) { const o = orgaOf(p); return ORGA.filter(n => n !== o); }
 function isSelf(p) { return !!state.me && orgaOf(p) === state.me; }
-// Positions: every organizer gives his own view (not for himself). Main position = most
-// votes (tie: the one named most often overall, then the usual order). Secondary positions =
-// named (as main or secondary) by at least half of those who gave a view.
+// Positions: every organizer gives his own view (not for himself).
+// Main position = most votes as main position (tie: the one earlier in the position list).
+// Secondary position = chosen as secondary position by at least two organizers.
+const POS2_NEEDED = 2;
 function posVotes(p) {
   const o = orgaOf(p), out = [];
   for (const rid of activeRaterKeys()) {
@@ -435,26 +436,27 @@ function consensus(p) {
   const votes = posVotes(p);
   if (!votes.length) return { ...shared, n: 0, main: {} };
   const main = {}, any = {};
-  for (const v of votes) { main[v.pos] = (main[v.pos] || 0) + 1; for (const x of [v.pos, ...v.pos2]) any[x] = (any[x] || 0) + 1; }
+  for (const v of votes) { main[v.pos] = (main[v.pos] || 0) + 1; for (const x of v.pos2) any[x] = (any[x] || 0) + 1; }
   const best = Math.max(...Object.values(main));
-  const tied = Object.keys(main).filter(k => main[k] === best);
-  const pos = tied.sort((a, b) => (any[b] - any[a]) || POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b))[0];
-  const need = Math.ceil(votes.length / 2);
-  const pos2 = Object.keys(any).filter(k => k !== pos && any[k] >= need).sort((a, b) => POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b));
-  return { pos, pos2, n: votes.length, main, tie: tied.length > 1 };
+  const tied = Object.keys(main).filter(k => main[k] === best).sort((a, b) => POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b));
+  const pos = tied[0];
+  const pos2 = Object.keys(any).filter(k => k !== pos && any[k] >= POS2_NEEDED).sort((a, b) => POS_ORDER.indexOf(a) - POS_ORDER.indexOf(b));
+  return { pos, pos2, n: votes.length, main, sec: any, tie: tied.length > 1 ? tied : null };
 }
 function applyConsensus() {
   for (const p of Object.values(state.players)) {
     if (!("sharedPos" in p)) { p.sharedPos = p.pos || ""; p.sharedPos2 = altOf(p).slice(); }
     const c = consensus(p);
-    p.pos = c.pos; p.pos2 = c.pos2; p.posInfo = { n: c.n, main: c.main, tie: !!c.tie };
+    p.pos = c.pos; p.pos2 = c.pos2; p.posInfo = { n: c.n, main: c.main, sec: c.sec || {}, tie: c.tie || null };
   }
 }
 function posInfoText(p) {
   const i = p.posInfo || { n: 0, main: {} };
   if (!i.n) return p.pos ? "noch keine Einschätzungen abgegeben, eingetragen ist der bisherige Stand" : "noch keine Einschätzungen";
-  const dist = Object.entries(i.main).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v}× ${k}`).join(", ");
-  return `Mehrheit aus ${i.n} Einschätzung${i.n === 1 ? "" : "en"} (Hauptposition: ${dist})${i.tie ? `. Gleichstand: Es gilt ${p.pos}, weil sie insgesamt öfter genannt wurde bzw. in der Liste vorne steht` : ""}`;
+  const list = o => Object.entries(o).sort((a, b) => b[1] - a[1] || POS_ORDER.indexOf(a[0]) - POS_ORDER.indexOf(b[0])).map(([k, v]) => `${v}× ${k}`).join(", ");
+  const open = Object.entries(i.sec || {}).filter(([k, v]) => v < POS2_NEEDED && k !== p.pos).map(([k]) => k);
+  return `${i.n} Einschätzung${i.n === 1 ? "" : "en"}. Hauptposition: ${list(i.main)}${i.tie ? ` (Gleichstand zwischen ${i.tie.join(" und ")}, vorerst gilt ${p.pos})` : ""}.`
+    + ` Nebenpositionen zählen ab ${POS2_NEEDED} Stimmen${Object.keys(i.sec || {}).length ? `: ${list(i.sec)}` : ""}.${open.length ? ` Noch nicht gesichert: ${open.join(", ")}.` : ""}`;
 }
 function computeAvg() {
   const acc = {};
@@ -1116,7 +1118,7 @@ function renderEditor() {
       <div class="field"><label>${isNew ? "" : "Deine "}Hauptposition: <span class="posname">${d.pos ? `${d.pos} · ${POS[d.pos]}` : "noch keine"}</span></label>${posPicker("dpos", d.pos, null)}</div>
       <div class="field"><label>Nebenpositionen: <span class="posname">${d.pos2.length ? d.pos2.join(", ") : "keine"}</span></label>
         ${posPicker("dpos2", d.pos2, d.pos)}
-        <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Hilft beim Verteilen. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
+        <span class="hint">Mehrere möglich: alle antippen, wo er auch spielen kann. Eine Nebenposition gilt, sobald mindestens ${POS2_NEEDED} von euch sie gewählt haben. TW als Nebenposition heißt: kann notfalls ins Tor.</span></div>
     </div>`}
     <div class="field"><label>Orga-Mitglied</label><div class="seg">
       <button data-dorga="" aria-pressed="${!d.orga}">Nein</button>
