@@ -1233,8 +1233,8 @@ function renderMatchday() {
   const byStrength = (x, y) => (revealed(y) - revealed(x)) || (revealed(x) ? ovr(y) - ovr(x) : 0) || x.name.localeCompare(y.name, "de");
   const groups = [
     [`Dabei (${n}), nach Stärke sortiert`, shown.filter(p => sel.has(p.id)).sort(byStrength)],
-    ["Vorrecht (letzte Woche dabei)", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id))],
-    [lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler"), shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id))],
+    ["Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id)).sort(byStrength)],
+    [`${lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler")}, nach Stärke`, shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id)).sort(byStrength)],
   ].filter(g => g[1].length);
   const pct = Math.min(100, (n / TARGET) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
