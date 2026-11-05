@@ -258,6 +258,8 @@ tr.click:hover td { background: var(--bg); }
 .pcell.over { background: #e3e7ff; color: #2f3d8a; }
 .pcell.sel { border-color: var(--ink); }
 .taphint { font-size: 11.5px; color: var(--muted); text-align: center; margin: -14px 0 0; }
+.linegrp { display: grid; gap: 4px; }
+.linelab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
 .need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
 .fbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff3cf; color: #3a2e00; border: 1px solid #e8cf7a; border-radius: 9px; padding: 7px 10px; font-size: 14px; }
 /* position check */
@@ -1290,13 +1292,21 @@ function renderMatchday() {
     </div>`;
   if (pf) { const left = Math.max(0, need2(pf) - (have[pf] || 0));
     html += `<div class="fbar"><span><b>Filter: ${pf === "ZM" ? "6er" : pf}</b> · ${left ? `noch ${left} gesucht` : "voll"}</span><button class="btn small-btn" data-act="pf-clear">✕ Alle zeigen</button></div>`; }
-  for (const [title, list] of groups) {
-    html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3><div class="plist">` +
-      (list.map(p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
+  const pickRow = p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
         ${posHtml(p)}<span class="nm">${esc(p.name)}${pf && sel.has(p.id) ? ` <span class="muted small">(schon dabei)</span>` : ""}</span>
         ${!pf && !sel.has(p.id) && wanted(p.pos) ? `<span class="need">gesucht</span>` : ""}<span class="skill">${ovrText(p)}</span>
-      </label>`).join("") || `<p class="muted small" style="margin:0">Niemand.</p>`) + `</div></div>`;
+      </label>`;
+  // without a filter: split each group into Torwart, Abwehr, Mittelfeld, Sturm (each sorted by strength)
+  const LINE_LABEL = { TW: "Torwart", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm", "": "Ohne Position" };
+  for (const [title, list] of groups) {
+    let body;
+    if (pf) body = `<div class="plist">${list.map(pickRow).join("") || `<p class="muted small" style="margin:0">Niemand.</p>`}</div>`;
+    else body = ["TW", "ABW", "MIT", "STU", ""].map(l => {
+      const part = list.filter(p => (LINE_OF[p.pos] || "") === l);
+      return part.length ? `<div class="linegrp"><span class="linelab">${LINE_LABEL[l]} · ${part.length}</span><div class="plist">${part.map(pickRow).join("")}</div></div>` : "";
+    }).join("");
+    html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3>${body}</div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
   html += `</section>`;
