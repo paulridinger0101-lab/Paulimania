@@ -1229,9 +1229,12 @@ function renderMatchday() {
   const q = state.filter.trim().toLowerCase();
   const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
   const lgIds = lg ? new Set([...lg.a, ...lg.b]) : new Set();
+  // ticked players first, strongest on top (players whose numbers are still hidden come last)
+  const byStrength = (x, y) => (revealed(y) - revealed(x)) || (revealed(x) ? ovr(y) - ovr(x) : 0) || x.name.localeCompare(y.name, "de");
   const groups = [
-    ["Vorrecht (letzte Woche dabei)", shown.filter(p => lgIds.has(p.id))],
-    [lg ? "Weitere Spieler" : "Alle Spieler", shown.filter(p => !lgIds.has(p.id))],
+    [`Dabei (${n}), nach Stärke sortiert`, shown.filter(p => sel.has(p.id)).sort(byStrength)],
+    ["Vorrecht (letzte Woche dabei)", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id))],
+    [lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler"), shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id))],
   ].filter(g => g[1].length);
   const pct = Math.min(100, (n / TARGET) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
@@ -1263,7 +1266,7 @@ function renderMatchday() {
     html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3><div class="plist">` +
       list.map(p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
-        ${posHtml(p)}<span class="nm">${esc(p.name)}</span>
+        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span>
       </label>`).join("") + `</div></div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
