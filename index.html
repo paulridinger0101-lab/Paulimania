@@ -22,10 +22,10 @@
   --pitch-ink: #f4f8f2;
   --accent: #1d6b3d;
   --accent-soft: #dcebdf;
-  --team-a: #d48a12;
-  --team-a-soft: #fbefd9;
-  --team-b: #2f4ea8;
-  --team-b-soft: #e1e7f7;
+  --team-a: #c3c9c2;
+  --team-a-soft: #f4f6f3;
+  --team-b: #1b1f1c;
+  --team-b-soft: #e1e5e0;
   --warn: #b5541c;
   --warn-soft: #f8e4d6;
   --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
@@ -35,14 +35,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0f1612; --surface: #18221c; --ink: #e6ede7; --muted: #95a69a; --line: #2b3a31;
     --pitch: #174f2f; --pitch-ink: #eef5ef; --accent: #5cc283; --accent-soft: #1f3a29;
-    --team-a: #f0a93a; --team-a-soft: #3a2c14; --team-b: #7d97ea; --team-b-soft: #1e2744;
+    --team-a: #e8ebe7; --team-a-soft: #2a332d; --team-b: #6f7b73; --team-b-soft: #0f1411;
     --warn: #f08a52; --warn-soft: #3d2416; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1612; --surface: #18221c; --ink: #e6ede7; --muted: #95a69a; --line: #2b3a31;
   --pitch: #174f2f; --pitch-ink: #eef5ef; --accent: #5cc283; --accent-soft: #1f3a29;
-  --team-a: #f0a93a; --team-a-soft: #3a2c14; --team-b: #7d97ea; --team-b-soft: #1e2744;
+  --team-a: #e8ebe7; --team-a-soft: #2a332d; --team-b: #6f7b73; --team-b-soft: #0f1411;
   --warn: #f08a52; --warn-soft: #3d2416; color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -246,6 +246,37 @@ tr.click:hover td { background: var(--bg); }
 .plscore .mine { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ring-s { font-size: 12px; font-weight: 600; color: var(--warn); }
 .ring-s.ok { color: var(--accent); }
+/* position check */
+.fmap { background: var(--pitch); border-radius: 10px; padding: 10px 6px; display: grid; gap: 8px; }
+.fline { display: flex; justify-content: space-around; }
+.fslot { display: grid; justify-items: center; gap: 2px; min-width: 56px; }
+.fk { font-family: var(--font-display); font-weight: 700; color: var(--pitch-ink); font-size: 13px; letter-spacing: .5px; }
+.fc { min-width: 44px; text-align: center; border-radius: 8px; padding: 3px 6px; font-weight: 700; font-size: 13px; background: #fff; color: #142019; display: inline-block; font-variant-numeric: tabular-nums; }
+.fc.over { background: #ffd8c2; color: #8a3a10; }
+.fc.under { background: #ffe9a8; color: #6d4c00; }
+.sug { display: grid; gap: 6px; }
+.sg { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); font-size: 14px; }
+.xbtn { border: 0; background: transparent; cursor: pointer; padding: 0 0 0 4px; color: var(--muted); font-size: 12px; }
+/* lineup */
+.pitchwrap { display: grid; gap: 6px; }
+.pitch { position: relative; width: 100%; max-width: 460px; justify-self: center; aspect-ratio: 10 / 16; border-radius: 12px; overflow: hidden;
+  background: repeating-linear-gradient(0deg, #2a7d47 0 6.25%, #277443 6.25% 12.5%); }
+.pitch svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pl { position: absolute; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 1px; width: 23%; }
+.pdot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 12.5px; box-shadow: 0 2px 4px rgba(0,0,0,.35); }
+.pdot.w { background: #fff; color: #142019; border: 2px solid #c3c9c2; }
+.pdot.s { background: #141815; color: #fff; border: 2px solid #fff; }
+.pdot.empty { opacity: .45; }
+.pnm { font-size: 11.5px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.pitchlab { position: absolute; left: 8px; font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: .5px; text-transform: uppercase; color: rgba(255,255,255,.85); }
+.pitchlab.top { top: 46%; } .pitchlab.bot { top: 51%; }
+.pairs { display: grid; gap: 6px; font-size: 13.5px; }
+.pr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 6px; align-items: stretch; }
+.pr .lab { grid-column: 1 / -1; margin-top: 4px; }
+.pr .t { padding: 5px 7px; border-radius: 7px; min-width: 0; }
+.pr .ta { background: var(--team-a-soft); border: 1px solid var(--team-a); }
+.pr .tb { background: var(--team-b); color: #fff; }
+.pr .lab { font-weight: 600; font-size: 13px; }
 .gknote { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--team-b-soft); color: var(--ink); }
 .mynote { font-size: 14px; padding: 10px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--ink); }
 .mynote.warn { background: var(--warn-soft); }
@@ -893,7 +924,170 @@ function makeScorer(ids) {
   };
 }
 function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+// 4-2-3-1 per team: slot, x (0 = left .. 1 = right), y (0 = own goal .. 1 = front)
+const FORMATION = [["TW", .5, .05], ["LV", .13, .24], ["IV", .37, .2], ["IV", .63, .2], ["RV", .87, .24],
+  ["ZM", .32, .42], ["ZM", .68, .42], ["LF", .14, .63], ["ZOM", .5, .6], ["RF", .86, .63], ["ST", .5, .82]];
+const NEED = FORMATION.reduce((o, [k]) => (o[k] = (o[k] || 0) + 1, o), {});
+// Groups for "best + weakest in one team"
+const GROUPS = [["TW", ["TW"], "Torwart"], ["AV", ["LV", "RV"], "Außenverteidiger"], ["IV", ["IV"], "Innenverteidiger"],
+  ["ZM", ["ZM"], "6er"], ["FL", ["LF", "RF"], "Flügel"], ["OF", ["ZOM", "ST"], "Stürmer / OM"]];
+// Position for this matchday: a change made in "Positionen prüfen", else the player's main position
+function playPos(id) { const a = state.current.assign || {}; return a[id] || (P(id) && P(id).pos) || ""; }
+function groupOf(pos) { const g = GROUPS.find(g => g[1].includes(pos)); return g ? g[0] : "REST"; }
+
+// Teams: in every group the players are paired best with weakest, second best with second weakest, ...
+// Each pair stays together; the pairs are split over both teams so that both are as strong as possible.
 function buildTeams(ids) {
+  const units = [];
+  const byGroup = {};
+  for (const id of ids) (byGroup[groupOf(playPos(id))] = byGroup[groupOf(playPos(id))] || []).push(id);
+  for (const [g, list] of Object.entries(byGroup)) {
+    const sorted = list.slice().sort((x, y) => ovr(P(y)) - ovr(P(x)) || Math.random() - .5);
+    if (g === "TW") { sorted.forEach(id => units.push({ g, ids: [id] })); continue; }
+    let i = 0, j = sorted.length - 1;
+    while (i < j) { units.push({ g, ids: [sorted[i], sorted[j]] }); i++; j--; }
+    if (i === j) units.push({ g, ids: [sorted[i]] });
+  }
+  const val = {}, at = {};
+  for (const id of ids) { val[id] = ovr(P(id)); at[id] = attrsOf(P(id) || {}); }
+  const cost = (mask) => {
+    const A = [], B = [];
+    units.forEach((u, k) => ((mask >> k) & 1 ? B : A).push(...u.ids));
+    let c = Math.abs(A.length - B.length) * 100;
+    const sum = t => t.reduce((s, id) => s + val[id], 0);
+    c += Math.abs(sum(A) - sum(B)) * 3;
+    for (const [g] of [...GROUPS, ["REST"]]) {
+      const ca = A.filter(id => groupOf(playPos(id)) === g).length, cb = B.filter(id => groupOf(playPos(id)) === g).length;
+      c += Math.abs(ca - cb) * (g === "TW" ? 60 : 15);
+    }
+    for (const a of BAL_ATTRS) {
+      const use = id => a.k === "cha" || playPos(id) !== "TW";
+      c += Math.abs(A.reduce((s, id) => s + (use(id) ? at[id][a.k] : 0), 0) - B.reduce((s, id) => s + (use(id) ? at[id][a.k] : 0), 0)) * 0.15;
+    }
+    return { c, A, B };
+  };
+  const nTW = ids.filter(id => playPos(id) === "TW").length;
+  const solve = () => {
+    const results = [], U = units.length;
+    if (U <= 16) for (let m = 0; m < (1 << U); m++) { if (m & 1) continue; results.push(cost(m)); } // team order doesn't matter
+    else for (let r = 0; r < 20000; r++) results.push(cost(Math.floor(Math.random() * (1 << 30)) & ((1 << Math.min(U, 30)) - 1)));
+    return results.sort((x, y) => x.c - y.c);
+  };
+  const ok = r => Math.abs(r.A.length - r.B.length) <= 1
+    && Math.abs(r.A.filter(id => playPos(id) === "TW").length - r.B.filter(id => playPos(id) === "TW").length) <= nTW % 2;
+  let results = solve();
+  // Pairs can't always add up to equal teams with one keeper each: then split pairs (unsorted group first).
+  for (let tries = 0; tries < 6 && !ok(results[0]); tries++) {
+    const order = ["REST", "OF", "FL", "AV", "ZM", "IV"];
+    const k = units.findIndex(u => u.ids.length === 2 && u.g === order.find(g => units.some(x => x.g === g && x.ids.length === 2)));
+    if (k < 0) break;
+    const [u] = units.splice(k, 1); units.push({ g: u.g, ids: [u.ids[0]] }, { g: u.g, ids: [u.ids[1]] });
+    results = solve();
+  }
+  const top = results.filter(x => x.c <= results[0].c + 1.2).slice(0, 12);
+  const pick = top[Math.floor(Math.random() * top.length)];
+  return Math.random() < .5 ? { a: pick.A, b: pick.B } : { a: pick.B, b: pick.A };
+}
+
+// Place a team into the 4-2-3-1: own position first, then secondary positions, then the same line.
+function lineupOf(t) {
+  const left = t.slice(), out = FORMATION.map(([k, x, y]) => ({ k, x, y, id: null }));
+  const take = (slot, ok) => { const i = left.findIndex(ok); if (i >= 0) { slot.id = left[i]; left.splice(i, 1); } };
+  for (const sl of out) take(sl, id => playPos(id) === sl.k);
+  for (const sl of out) if (!sl.id) take(sl, id => altOf(P(id)).includes(sl.k));
+  for (const sl of out) if (!sl.id) take(sl, id => LINE_OF[playPos(id)] === LINE_OF[sl.k] && sl.k !== "TW");
+  for (const sl of out) if (!sl.id && sl.k !== "TW") take(sl, () => true);
+  for (const sl of out) if (!sl.id) take(sl, () => true);
+  return { slots: out, bench: left };
+}
+function lineupPitch(a, b) {
+  const W = lineupOf(a), S = lineupOf(b);
+  const short = n => { const parts = (n || "").trim().split(/\s+/); return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0]; };
+  const dot = (sl, team, top) => {
+    const p = sl.id && P(sl.id), x = team === "s" ? 1 - sl.x : sl.x;
+    const y = team === "s" ? 0.06 + sl.y * 0.42 : 0.915 - sl.y * 0.42;
+    const off = p && playPos(sl.id) !== sl.k;
+    return `<div class="pl" style="left:${(x * 100).toFixed(1)}%;top:${(y * 100).toFixed(1)}%">
+      <span class="pdot ${team}${p ? "" : " empty"}">${sl.k}</span><span class="pnm">${p ? esc(short(p.name)) + (off ? "*" : "") : "frei"}</span></div>`;
+  };
+  const bench = [...W.bench.map(id => `Weiß: ${esc(P(id).name)}`), ...S.bench.map(id => `Schwarz: ${esc(P(id).name)}`)];
+  const offAny = [...W.slots, ...S.slots].some(sl => sl.id && playPos(sl.id) !== sl.k);
+  return `<div class="pitchwrap"><div class="pitch" role="img" aria-label="Aufstellung 4-2-3-1: Team Weiß unten, Team Schwarz oben">
+    <svg viewBox="0 0 100 160" aria-hidden="true"><g fill="none" stroke="rgba(255,255,255,.75)" stroke-width=".6">
+      <rect x="3" y="3" width="94" height="154"/><line x1="3" y1="80" x2="97" y2="80"/><circle cx="50" cy="80" r="13"/>
+      <rect x="22" y="3" width="56" height="20"/><rect x="36" y="3" width="28" height="8"/>
+      <rect x="22" y="137" width="56" height="20"/><rect x="36" y="149" width="28" height="8"/></g></svg>
+    ${S.slots.map(sl => dot(sl, "s")).join("")}${W.slots.map(sl => dot(sl, "w")).join("")}
+    <span class="pitchlab top">Team Schwarz</span><span class="pitchlab bot">Team Weiß</span>
+  </div>
+  ${offAny ? `<p class="hint" style="margin:0">* spielt nicht auf seiner Hauptposition</p>` : ""}
+  ${bench.length ? `<p class="hint" style="margin:0">Ohne Platz in der Aufstellung: ${bench.join(", ")}</p>` : ""}</div>`;
+}
+function distributionPanel(a, b) {
+  const rows = GROUPS.map(([g, , label]) => {
+    const pa = a.filter(id => groupOf(playPos(id)) === g), pb = b.filter(id => groupOf(playPos(id)) === g);
+    if (!pa.length && !pb.length) return "";
+    const fmt = t => t.slice().sort((x, y) => ovr(P(y)) - ovr(P(x))).map(id => `${esc(P(id).name.split(" ")[0])} ${ovrText(P(id))}`).join(" + ") || "–";
+    return `<div class="pr"><span class="lab">${label}</span><span class="t ta">${fmt(pa)}</span><span class="t tb">${fmt(pb)}</span></div>`;
+  }).join("");
+  return `<details class="cmp"><summary>So wurde verteilt</summary>
+    <div style="display:grid;gap:6px;margin-top:10px">
+      <p class="hint" style="margin:0">Pro Gruppe kommen der Beste und der Schwächste in ein Team, die beiden Mittleren ins andere. Torhüter: einer pro Team. Spalten: Weiß · Schwarz.</p>
+      <div class="pairs">${rows}</div></div></details>`;
+}
+
+// ---------- position check before building teams ----------
+function positionCheck(ids) {
+  const c = {}; let unknown = [];
+  for (const id of ids) { const pp = playPos(id); if (pp) c[pp] = (c[pp] || 0) + 1; else unknown.push(id); }
+  const need = Object.fromEntries(Object.entries(NEED).map(([k, v]) => [k, v * 2]));
+  const surplus = {}, deficit = {};
+  for (const k of POS_ORDER) { const d = (c[k] || 0) - (need[k] || 0); if (d > 0) surplus[k] = d; if (d < 0) deficit[k] = -d; }
+  const used = new Set(), sugg = [];
+  for (const D of POS_ORDER) for (let n = 0; n < (deficit[D] || 0); n++) {
+    const cands = ids.filter(id => !used.has(id)).map(id => {
+      const from = playPos(id), alt = altOf(P(id));
+      let score = -1;
+      if (!from) score = 2;
+      else if (surplus[from] > 0 && alt.includes(D)) score = 3;
+      else if (surplus[from] > 0 && LINE_OF[from] === LINE_OF[D] && D !== "TW") score = 1;
+      return { id, from, score, alt: alt.includes(D) };
+    }).filter(x => x.score > 0).sort((x, y) => y.score - x.score || (P(x.id).name).localeCompare(P(y.id).name, "de"));
+    const best = cands[0]; if (!best) break;
+    used.add(best.id); if (best.from) surplus[best.from]--;
+    sugg.push({ id: best.id, from: best.from, to: D, alt: best.alt });
+  }
+  return { c, need, surplus, deficit, unknown, sugg, conflicts: Object.keys(deficit).length + Object.keys(surplus).length };
+}
+function positionPanel(ids) {
+  const r = positionCheck(ids);
+  const assign = state.current.assign || {};
+  const cell = k => { const have = r.c[k] || 0, need = r.need[k]; const cls = have > need ? "over" : have < need ? "under" : ""; return `<div class="fslot"><span class="fk">${k === "ZM" ? "6er" : k}</span><span class="fc ${cls}">${have}/${need}</span></div>`; };
+  const changed = Object.entries(assign).filter(([id]) => ids.includes(id) && P(id));
+  return `<section class="panel">
+    <div class="row spread"><h2>Positionen prüfen</h2><span class="chip ${r.conflicts ? "warn" : ""}">${r.conflicts ? `${r.conflicts} Konflikt${r.conflicts === 1 ? "" : "e"}` : "passt"}</span></div>
+    <p class="hint" style="margin:0">Für zwei Teams im 4-2-3-1. Pro Position: abgehakt / gebraucht.</p>
+    <div class="fmap">
+      <div class="fline">${cell("ST")}</div>
+      <div class="fline">${cell("LF")}${cell("ZOM")}${cell("RF")}</div>
+      <div class="fline">${cell("ZM")}</div>
+      <div class="fline">${cell("LV")}${cell("IV")}${cell("RV")}</div>
+      <div class="fline">${cell("TW")}</div>
+    </div>
+    <div class="row small"><span><span class="fc over">6/4</span> zu viele</span><span><span class="fc under">1/2</span> fehlt</span>
+      ${r.unknown.length ? `<span class="chip plain">${r.unknown.length} ohne Position</span>` : ""}</div>
+    ${r.sugg.length ? `<b class="small">Vorschläge für diesen Spieltag</b>
+      <div class="sug">${r.sugg.map(x => `<div class="sg"><span><b>${esc(P(x.id).name)}</b> spielt ${x.to}${x.from ? ` statt ${x.from}` : ""}
+        <span class="muted small">${x.alt ? "(Nebenposition)" : x.from ? "(gleiche Reihe)" : "(hat noch keine Position)"}</span></span>
+        <button class="btn small-btn" data-assign="${x.id}" data-to="${x.to}">Ja</button></div>`).join("")}</div>
+      ${r.sugg.length > 1 ? `<div><button class="btn small-btn" data-act="assign-all">Alle Vorschläge übernehmen</button></div>` : ""}` : ""}
+    ${changed.length ? `<b class="small">Umgestellt für diesen Spieltag</b>
+      <div class="row small">${changed.map(([id, to]) => `<span class="chip plain">${esc(P(id).name)}: ${to} (statt ${P(id).pos || "–"}) <button class="xbtn" data-unassign="${id}" aria-label="Zurücksetzen">✕</button></span>`).join("")}</div>` : ""}
+    <p class="hint" style="margin:0">Umstellungen gelten nur für diesen Spieltag und ändern nicht die Positionen der Spieler.</p>
+  </section>`;
+}
+
+function buildTeamsRandomOld(ids) {
   const score = makeScorer(ids);
   const half = Math.ceil(ids.length / 2);
   const found = new Map();
@@ -923,11 +1117,11 @@ function teamStats(t) {
   const sum = ps.reduce((s, p) => s + ovr(p), 0);
   const byPos = Object.fromEntries(LINE_ORDER.map(k => [k, ps.filter(p => LINE_OF[p.pos] === k).length]));
   const attrAvg = Object.fromEntries(BAL_ATTRS.map(a => { const q = a.k === "cha" ? ps : ps.filter(p => !isGK(p)); return [a.k, q.length ? q.reduce((s, p) => s + attrsOf(p)[a.k], 0) / q.length : 0]; }));
-  const byLine = Object.fromEntries(LINE_ORDER.map(k => [k, all.filter(p => LINE_OF[p.pos] === k).length]));
+  const byLine = Object.fromEntries(LINE_ORDER.map(k => [k, all.filter(p => LINE_OF[playPos(p.id)] === k).length]));
   return { n: all.length, shown: ps.length, sum, avg: ps.length ? sum / ps.length : 0, byPos: byLine, attrAvg };
 }
 function sortTeam(t) {
-  return t.slice().sort((x, y) => POS_ORDER.indexOf(P(x)?.pos) - POS_ORDER.indexOf(P(y)?.pos) || (P(x)?.name || "").localeCompare(P(y)?.name || "", "de"));
+  return t.slice().sort((x, y) => POS_ORDER.indexOf(playPos(x)) - POS_ORDER.indexOf(playPos(y)) || (P(x)?.name || "").localeCompare(P(y)?.name || "", "de"));
 }
 
 /* ---------- attendance stats ---------- */
@@ -1073,7 +1267,9 @@ function renderMatchday() {
       </label>`).join("") + `</div></div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
-  html += `<div class="row"><button class="btn primary" data-act="build" ${n < 2 ? "disabled" : ""}>${cur.a ? "Neu mischen" : "Faire Teams erstellen"}</button>
+  html += `</section>`;
+  if (n >= 11) html += positionPanel([...sel]);
+  html += `<section class="panel"><div class="row"><button class="btn primary" data-act="build" ${n < 2 ? "disabled" : ""}>${cur.a ? "Neu mischen" : "Faire Teams erstellen"}</button>
     ${n % 2 ? `<span class="hint">Ungerade Zahl: ein Team hat einen Spieler mehr.</span>` : ""}</div>
   </section>`;
 
@@ -1095,12 +1291,13 @@ function renderTeams() {
   const unr = [...cur.a, ...cur.b].filter(id => P(id) && !isRated(P(id))).length;
   const partial = [...cur.a, ...cur.b].filter(id => P(id) && isRated(P(id)) && !revealed(P(id))).length;
   const nopos = [...cur.a, ...cur.b].filter(id => P(id) && !P(id).pos).length;
-  const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length;
+  const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length
+    || (cur.builtAssign !== undefined && cur.builtAssign !== JSON.stringify(cur.assign || {}));
   const team = (key, title, t, st) => `
     <div class="team ${key}">
       <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${st.shown ? f1(st.avg) + (st.shown < st.n ? ` (aus ${st.shown})` : "") : "?"}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
-        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
+        <span class="pos">${playPos(id) || "–"}</span><span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${LINE_ORDER.map(k => `<span>${LINES[k]} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
@@ -1112,7 +1309,9 @@ function renderTeams() {
     </div>
     ${stale ? `<p class="chip warn" style="justify-self:start">Auswahl hat sich geändert. „Neu mischen“ drücken.</p>` : ""}
     ${unr || nopos || partial ? `<p class="hint" style="margin:0"><span class="chip warn">Hinweis</span> ${[unr ? `${unr} Spieler ${unr === 1 ? "ist" : "sind"} noch nicht bewertet und ${unr === 1 ? "zählt" : "zählen"} als Durchschnitt (5)` : "", partial ? `${partial} noch nicht von allen bewertet (Zahl als „?“, für die Verteilung zählen die vorhandenen Bewertungen)` : "", nopos ? `${nopos} ohne Position` : ""].filter(Boolean).join(", ")}. Stärke und Vergleich zeigen nur fertig bewertete Spieler.</p>` : ""}
-    <div class="teams">${team("a", "Team Gelb", cur.a, A)}${team("b", "Team Blau", cur.b, B)}</div>
+    ${lineupPitch(cur.a, cur.b)}
+    <div class="teams">${team("a", "Team Weiß", cur.a, A)}${team("b", "Team Schwarz", cur.b, B)}</div>
+    ${distributionPanel(cur.a, cur.b)}
     <details class="cmp"><summary>Vergleich nach Kriterien (Durchschnitt pro Team)</summary>
       <div class="cmp-grid">${cmp}</div></details>
     <p class="hint">Tausch von Hand: einen Spieler antippen, dann einen aus dem anderen Team. Die Stärkewerte sind nur für dich und kommen nicht in den WhatsApp-Text.</p>
@@ -1325,13 +1524,13 @@ function renderStats() {
     ${intro("Ergebnis nachtragen, dann zählen Siege, Unentschieden und Niederlagen (S-U-N) oben mit.")}
     ${games.map(g => `<div class="game">
       <div class="row spread"><b>${fmtDate(g.date)}</b>
-        <div class="score"><span class="chip" style="background:var(--team-a-soft);color:var(--team-a)">Gelb</span>
-        <input type="number" min="0" inputmode="numeric" id="sa-${g.id}" data-score="${g.id}" data-side="a" value="${g.scoreA ?? ""}" aria-label="Tore Gelb">
+        <div class="score"><span class="chip" style="background:var(--team-a-soft);color:var(--ink);border:1px solid var(--team-a)">Weiß</span>
+        <input type="number" min="0" inputmode="numeric" id="sa-${g.id}" data-score="${g.id}" data-side="a" value="${g.scoreA ?? ""}" aria-label="Tore Weiß">
         <span>:</span>
-        <input type="number" min="0" inputmode="numeric" id="sb-${g.id}" data-score="${g.id}" data-side="b" value="${g.scoreB ?? ""}" aria-label="Tore Blau">
-        <span class="chip" style="background:var(--team-b-soft);color:var(--team-b)">Blau</span></div></div>
-      <div class="small muted"><b style="color:var(--team-a)">Gelb:</b> ${g.a.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
-      <div class="small muted"><b style="color:var(--team-b)">Blau:</b> ${g.b.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
+        <input type="number" min="0" inputmode="numeric" id="sb-${g.id}" data-score="${g.id}" data-side="b" value="${g.scoreB ?? ""}" aria-label="Tore Schwarz">
+        <span class="chip" style="background:var(--team-b);color:#fff">Schwarz</span></div></div>
+      <div class="small muted"><b style="color:var(--ink)">Weiß:</b> ${g.a.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
+      <div class="small muted"><b style="color:var(--ink)">Schwarz:</b> ${g.b.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
       <div><button class="btn ghost danger" data-delgame="${g.id}">${state.confirmGame === g.id ? "Wirklich löschen?" : "Spieltag löschen"}</button></div>
     </div>`).join("")}
   </section>`;
@@ -1416,8 +1615,8 @@ async function deletePlayer(id) {
 }
 function waText() {
   const c = state.current;
-  const line = id => { const p = P(id); return p ? `• ${p.name}${p.pos === "TW" ? " (TW)" : ""}` : ""; };
-  return `⚽ Montagskick, ${fmtDate(c.date)}\n\n🟡 Team Gelb (${c.a.length})\n${sortTeam(c.a).map(line).join("\n")}\n\n🔵 Team Blau (${c.b.length})\n${sortTeam(c.b).map(line).join("\n")}`;
+  const line = id => { const p = P(id); return p ? `• ${p.name} (${playPos(id) || "–"})` : ""; };
+  return `⚽ Montagskick, ${fmtDate(c.date)}\n\n⚪ Team Weiß (${c.a.length})\n${sortTeam(c.a).map(line).join("\n")}\n\n⚫ Team Schwarz (${c.b.length})\n${sortTeam(c.b).map(line).join("\n")}`;
 }
 async function copyText(text, fallbackEl) {
   try { await navigator.clipboard.writeText(text); toast("Kopiert. Jetzt in WhatsApp einfügen."); }
@@ -1431,7 +1630,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
@@ -1456,6 +1655,8 @@ view.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.edit) { state.editing = t.dataset.edit; state.draft = null; state.confirmDel = false; render(); document.getElementById("editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (t.dataset.assign) { cur.assign = { ...(cur.assign || {}), [t.dataset.assign]: t.dataset.to }; store.saveCurrent(); return render(); }
+  if (t.dataset.unassign) { const a = { ...(cur.assign || {}) }; delete a[t.dataset.unassign]; cur.assign = a; store.saveCurrent(); return render(); }
   if (t.dataset.dorga !== undefined) { state.draft.orga = t.dataset.dorga; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
   if (t.dataset.dpos || t.dataset.dattr || t.dataset.dpos2 !== undefined) {
     const d = state.draft;
@@ -1568,11 +1769,16 @@ view.addEventListener("click", async (e) => {
       toast("Beispielspieler entfernt"); render(); break;
     }
     case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
-    case "sel-none": cur.selected = []; cur.a = null; cur.b = null; store.saveCurrent(); render(); break;
+    case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; store.saveCurrent(); render(); break;
+    case "assign-all": {
+      const r = positionCheck(cur.selected.filter(id => state.players[id]));
+      cur.assign = { ...(cur.assign || {}) }; for (const x of r.sugg) cur.assign[x.id] = x.to;
+      store.saveCurrent(); render(); break;
+    }
     case "build": {
       const ids = cur.selected.filter(id => state.players[id]);
-      const res = buildTeams(ids); cur.a = res.a; cur.b = res.b; state.swapSel = null; store.saveCurrent(); render();
-      document.querySelector(".teams")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const res = buildTeams(ids); cur.a = res.a; cur.b = res.b; cur.builtAssign = JSON.stringify(cur.assign || {}); state.swapSel = null; store.saveCurrent(); render();
+      document.querySelector(".pitch")?.scrollIntoView({ behavior: "smooth", block: "start" });
       break;
     }
     case "copy": copyText(waText(), document.getElementById("wa")); break;
@@ -1583,7 +1789,7 @@ view.addEventListener("click", async (e) => {
       await store.putGame(g);
       toast(existing ? "Spieltag aktualisiert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
       cur.date = nextMonday(new Date(new Date(cur.date + "T12:00:00").getTime() + 864e5).toISOString().slice(0, 10));
-      cur.selected = []; cur.a = null; cur.b = null; store.saveCurrent();
+      cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; delete cur.builtAssign; store.saveCurrent();
       state.tab = "statistik"; render(); break;
     }
     case "export": {
@@ -1612,6 +1818,7 @@ view.addEventListener("change", async (e) => {
   if (t.dataset.pick) {
     const id = t.dataset.pick;
     cur.selected = t.checked ? [...new Set([...cur.selected, id])] : cur.selected.filter(x => x !== id);
+    if (!t.checked && cur.assign && cur.assign[id]) { const a = { ...cur.assign }; delete a[id]; cur.assign = a; }
     store.saveCurrent(); render();
   } else if (t.id === "gdate") { cur.date = t.value || nextMonday(); store.saveCurrent(); }
   else if (t.dataset.score) {
