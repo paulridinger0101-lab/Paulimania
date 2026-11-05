@@ -246,6 +246,20 @@ tr.click:hover td { background: var(--bg); }
 .plscore .mine { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ring-s { font-size: 12px; font-weight: 600; color: var(--warn); }
 .ring-s.ok { color: var(--accent); }
+/* live position strip on the matchday */
+.pstrip { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 6; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+.pcell { display: grid; justify-items: center; border-radius: 7px; padding: 4px 0; border: 2px solid transparent; cursor: pointer; min-width: 0; }
+.pcell .k { font-family: var(--font-display); font-weight: 700; font-size: 12px; }
+.pcell .v { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pcell.ok { background: var(--accent-soft); color: var(--accent); }
+.pcell.miss { background: #ffe9a8; color: #6d4c00; }
+.pcell.zero { background: #ffd3c0; color: #8a3a10; }
+.pcell.over { background: #e3e7ff; color: #2f3d8a; }
+.pcell.sel { border-color: var(--ink); }
+.taphint { font-size: 11.5px; color: var(--muted); text-align: center; margin: -14px 0 0; }
+.need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
+.fbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #fff3cf; color: #3a2e00; border: 1px solid #e8cf7a; border-radius: 9px; padding: 7px 10px; font-size: 14px; }
 /* position check */
 .fmap { background: var(--pitch); border-radius: 10px; padding: 10px 6px; display: grid; gap: 8px; }
 .fline { display: flex; justify-content: space-around; }
@@ -1231,16 +1245,28 @@ function renderMatchday() {
   const lgIds = lg ? new Set([...lg.a, ...lg.b]) : new Set();
   // ticked players first, strongest on top (players whose numbers are still hidden come last)
   const byStrength = (x, y) => (revealed(y) - revealed(x)) || (revealed(x) ? ovr(y) - ovr(x) : 0) || x.name.localeCompare(y.name, "de");
-  const groups = [
+  // live count of main positions among ticked players (2 teams, 4-2-3-1)
+  const have = {}; for (const id of sel) { const pp = P(id) && P(id).pos; if (pp) have[pp] = (have[pp] || 0) + 1; }
+  const need2 = k => (NEED[k] || 0) * 2;
+  const wanted = k => k && (have[k] || 0) < need2(k);
+  const pf = state.posFilter && POS[state.posFilter] ? state.posFilter : null;
+  const strip = `<div class="pstrip" role="group" aria-label="Hauptpositionen der abgehakten Spieler">${["TW", "LV", "IV", "RV", "ZM", "LF", "ZOM", "RF", "ST"].map(k => {
+    const h = have[k] || 0, nd = need2(k), cls = h === nd ? "ok" : h > nd ? "over" : h === 0 ? "zero" : "miss";
+    return `<button class="pcell ${cls}${pf === k ? " sel" : ""}" data-pf="${k}" aria-pressed="${pf === k}"><span class="k">${k === "ZM" ? "6er" : k}</span><span class="v">${h}/${nd}</span></button>`;
+  }).join("")}</div><p class="taphint">Tippe auf eine Position, um passende Spieler zu zeigen</p>`;
+  const groups = pf ? [
+    [`Hauptposition ${pf === "ZM" ? "6er (ZM)" : pf}, nach Stärke`, shown.filter(p => p.pos === pf).sort(byStrength)],
+    [`Können auch ${pf === "ZM" ? "6er (ZM)" : pf} (Nebenposition)`, shown.filter(p => p.pos !== pf && altOf(p).includes(pf)).sort(byStrength)],
+  ] : [
     [`Dabei (${n}), nach Stärke sortiert`, shown.filter(p => sel.has(p.id)).sort(byStrength)],
     ["Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id)).sort(byStrength)],
     [`${lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler")}, nach Stärke`, shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id)).sort(byStrength)],
-  ].filter(g => g[1].length);
+  ].filter(g => g[1].length || pf);
   const pct = Math.min(100, (n / TARGET) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
   const gk2 = [...sel].filter(id => altOf(P(id)).includes("TW")).length;
 
-  let html = `
+  let html = `${strip}
   <section class="panel">
     <div class="row spread">
       <div style="display:grid;gap:4px">
@@ -1262,12 +1288,15 @@ function renderMatchday() {
       ${lg ? `<button class="btn" data-act="sel-last">Alle von letzter Woche</button>` : ""}
       <button class="btn ghost" data-act="sel-none">Auswahl leeren</button>
     </div>`;
+  if (pf) { const left = Math.max(0, need2(pf) - (have[pf] || 0));
+    html += `<div class="fbar"><span><b>Filter: ${pf === "ZM" ? "6er" : pf}</b> · ${left ? `noch ${left} gesucht` : "voll"}</span><button class="btn small-btn" data-act="pf-clear">✕ Alle zeigen</button></div>`; }
   for (const [title, list] of groups) {
     html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3><div class="plist">` +
-      list.map(p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
+      (list.map(p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
-        ${posHtml(p)}<span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span>
-      </label>`).join("") + `</div></div>`;
+        ${posHtml(p)}<span class="nm">${esc(p.name)}${pf && sel.has(p.id) ? ` <span class="muted small">(schon dabei)</span>` : ""}</span>
+        ${!pf && !sel.has(p.id) && wanted(p.pos) ? `<span class="need">gesucht</span>` : ""}<span class="skill">${ovrText(p)}</span>
+      </label>`).join("") || `<p class="muted small" style="margin:0">Niemand.</p>`) + `</div></div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
   html += `</section>`;
@@ -1633,7 +1662,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
@@ -1642,6 +1671,7 @@ view.addEventListener("click", async (e) => {
     state.confirmRelease = null; await releaseClaim(t.dataset.release); return;
   }
   if (t.dataset.delrow) { state.confirmRow = t.dataset.delrow; return render(); }
+  if (t.dataset.pf) { state.posFilter = state.posFilter === t.dataset.pf ? null : t.dataset.pf; render(); document.querySelector(".fbar, .plist")?.scrollIntoView({ block: "nearest" }); return; }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
     const id = t.dataset.swap;
@@ -1773,6 +1803,7 @@ view.addEventListener("click", async (e) => {
     }
     case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
     case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; store.saveCurrent(); render(); break;
+    case "pf-clear": state.posFilter = null; render(); break;
     case "assign-all": {
       const r = positionCheck(cur.selected.filter(id => state.players[id]));
       cur.assign = { ...(cur.assign || {}) }; for (const x of r.sugg) cur.assign[x.id] = x.to;
