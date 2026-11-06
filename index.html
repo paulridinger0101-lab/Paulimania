@@ -960,6 +960,15 @@ function buildTeams(ids) {
   for (const [g, list] of Object.entries(byGroup)) {
     const sorted = list.slice().sort((x, y) => ovr(P(y)) - ovr(P(x)) || Math.random() - .5);
     if (g === "TW") { sorted.forEach(id => units.push({ g, ids: [id] })); continue; }
+    // Groups with two positions (LV/RV, LF/RF, ZOM/ST): if best + weakest would be the same side,
+    // pair 1st with 3rd and 2nd with 4th instead, so each team gets one of each.
+    if (sorted.length === 4) {
+      const ps = sorted.map(playPos), mixed = (a, b) => ps[a] !== ps[b];
+      const options = [[[0, 3], [1, 2]], [[0, 2], [1, 3]], [[0, 1], [2, 3]]];
+      const pick = options.find(o => o.every(([a, b]) => mixed(a, b))) || options[0];
+      pick.forEach(([a, b]) => units.push({ g, ids: [sorted[a], sorted[b]] }));
+      continue;
+    }
     let i = 0, j = sorted.length - 1;
     while (i < j) { units.push({ g, ids: [sorted[i], sorted[j]] }); i++; j--; }
     if (i === j) units.push({ g, ids: [sorted[i]] });
@@ -975,6 +984,11 @@ function buildTeams(ids) {
     for (const [g] of [...GROUPS, ["REST"]]) {
       const ca = A.filter(id => groupOf(playPos(id)) === g).length, cb = B.filter(id => groupOf(playPos(id)) === g).length;
       c += Math.abs(ca - cb) * (g === "TW" ? 60 : 15);
+    }
+    // and each exact position (one LV and one RV per team, etc.)
+    for (const pos of ["LV", "RV", "LF", "RF", "ZOM", "ST"]) {
+      const ca = A.filter(id => playPos(id) === pos).length, cb = B.filter(id => playPos(id) === pos).length;
+      c += Math.abs(ca - cb) * 8;
     }
     for (const a of BAL_ATTRS) {
       const use = id => a.k === "cha" || playPos(id) !== "TW";
