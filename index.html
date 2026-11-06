@@ -1374,7 +1374,9 @@ function renderTeams() {
     <div class="row">
       <button class="btn primary" data-act="copy">Für WhatsApp kopieren</button>
       <button class="btn" data-act="save-game">Spieltag speichern</button>
+      <button class="btn ghost danger" data-act="clear-teams">${state.confirmClearTeams ? "Wirklich verwerfen?" : "Teams verwerfen"}</button>
     </div>
+    <p class="hint" style="margin:0">„Teams verwerfen“ löscht nur die Teams. Die abgehakten Spieler und die Umstellungen aus „Positionen prüfen“ bleiben.</p>
     <textarea id="wa" readonly hidden></textarea>
   </section>`;
 }
@@ -1828,6 +1830,11 @@ view.addEventListener("click", async (e) => {
     case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
     case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; store.saveCurrent(); render(); break;
     case "pf-clear": state.posFilter = null; render(); break;
+    case "clear-teams": {
+      if (!state.confirmClearTeams) { state.confirmClearTeams = true; return render(); }
+      state.confirmClearTeams = false; cur.a = null; cur.b = null; delete cur.builtAssign; state.swapSel = null;
+      store.saveCurrent(); render(); toast("Teams verworfen. Die Auswahl ist geblieben."); break;
+    }
     case "assign-all": {
       const r = positionCheck(cur.selected.filter(id => state.players[id]));
       cur.assign = { ...(cur.assign || {}) }; for (const x of r.sugg) cur.assign[x.id] = x.to;
@@ -1835,6 +1842,7 @@ view.addEventListener("click", async (e) => {
     }
     case "build": {
       const ids = cur.selected.filter(id => state.players[id]);
+      state.confirmClearTeams = false;
       const res = buildTeams(ids); cur.a = res.a; cur.b = res.b; cur.builtAssign = JSON.stringify(cur.assign || {}); state.swapSel = null; store.saveCurrent(); render();
       document.querySelector(".pitch")?.scrollIntoView({ behavior: "smooth", block: "start" });
       break;
