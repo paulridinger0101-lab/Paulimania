@@ -258,6 +258,11 @@ tr.click:hover td { background: var(--bg); }
 .pcell.over { background: #e3e7ff; color: #2f3d8a; }
 .pcell.sel { border-color: var(--ink); }
 .taphint { font-size: 11.5px; color: var(--muted); text-align: center; margin: -14px 0 0; }
+.latebtn { border-color: #7a4fd0; color: #7a4fd0; }
+.latebtn.on { background: #ece5fb; }
+.latesheet { border: 2px solid #7a4fd0; border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.pick.lateopt.on { border-color: #7a4fd0; background: #ece5fb; }
+.pick.lateopt input { accent-color: #7a4fd0; }
 .linegrp { display: grid; gap: 4px; }
 .linelab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
 .need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
@@ -956,6 +961,10 @@ const GROUPS = [["TW", ["TW"], "Torwart"], ["AV", ["LV", "RV"], "Außenverteidig
   ["ZM", ["ZM"], "6er"], ["FL", ["LF", "RF"], "Flügel"], ["OF", ["ZOM", "ST"], "Stürmer / OM"]];
 // Position for this matchday: a change made in "Positionen prüfen", else the player's main position
 function playPos(id) { const a = state.current.assign || {}; return a[id] || (P(id) && P(id).pos) || ""; }
+// Players who might come late this matchday: never two in the same team.
+function lateList() { const c = state.current; return (c.late || []).filter(id => (c.selected || []).includes(id) && P(id)); }
+function isLate(id) { return lateList().includes(id); }
+function buildSig() { return JSON.stringify({ a: state.current.assign || {}, l: lateList().slice().sort() }); }
 function groupOf(pos) { const g = GROUPS.find(g => g[1].includes(pos)); return g ? g[0] : "REST"; }
 
 // Teams: in every group the players are paired best with weakest, second best with second weakest, ...
@@ -964,6 +973,7 @@ function buildTeams(ids) {
   const units = [];
   const byGroup = {};
   for (const id of ids) (byGroup[groupOf(playPos(id))] = byGroup[groupOf(playPos(id))] || []).push(id);
+  const late = new Set(lateList().filter(id => ids.includes(id)));
   for (const [g, list] of Object.entries(byGroup)) {
     const sorted = list.slice().sort((x, y) => ovr(P(y)) - ovr(P(x)) || Math.random() - .5);
     if (g === "TW") { sorted.forEach(id => units.push({ g, ids: [id] })); continue; }
@@ -986,6 +996,7 @@ function buildTeams(ids) {
     const A = [], B = [];
     units.forEach((u, k) => ((mask >> k) & 1 ? B : A).push(...u.ids));
     let c = Math.abs(A.length - B.length) * 100;
+    c += Math.abs(A.filter(id => late.has(id)).length - B.filter(id => late.has(id)).length) * 120;
     const sum = t => t.reduce((s, id) => s + val[id], 0);
     c += Math.abs(sum(A) - sum(B)) * 3;
     for (const [g] of [...GROUPS, ["REST"]]) {
@@ -1010,13 +1021,20 @@ function buildTeams(ids) {
     else for (let r = 0; r < 20000; r++) results.push(cost(Math.floor(Math.random() * (1 << 30)) & ((1 << Math.min(U, 30)) - 1)));
     return results.sort((x, y) => x.c - y.c);
   };
+  // two late players paired together could never be split: separate them first
+  for (let k = units.length - 1; k >= 0; k--) {
+    const u = units[k];
+    if (u.ids.length === 2 && u.ids.every(id => late.has(id))) { units.splice(k, 1); units.push({ g: u.g, ids: [u.ids[0]] }, { g: u.g, ids: [u.ids[1]] }); }
+  }
   const ok = r => Math.abs(r.A.length - r.B.length) <= 1
+    && Math.abs(r.A.filter(id => late.has(id)).length - r.B.filter(id => late.has(id)).length) <= late.size % 2
     && Math.abs(r.A.filter(id => playPos(id) === "TW").length - r.B.filter(id => playPos(id) === "TW").length) <= nTW % 2;
   let results = solve();
   // Pairs can't always add up to equal teams with one keeper each: then split pairs (unsorted group first).
   for (let tries = 0; tries < 6 && !ok(results[0]); tries++) {
     const order = ["REST", "OF", "FL", "AV", "ZM", "IV"];
-    const k = units.findIndex(u => u.ids.length === 2 && u.g === order.find(g => units.some(x => x.g === g && x.ids.length === 2)));
+    let k = units.findIndex(u => u.ids.length === 2 && u.ids.some(id => late.has(id)));
+    if (k < 0) k = units.findIndex(u => u.ids.length === 2 && u.g === order.find(g => units.some(x => x.g === g && x.ids.length === 2)));
     if (k < 0) break;
     const [u] = units.splice(k, 1); units.push({ g: u.g, ids: [u.ids[0]] }, { g: u.g, ids: [u.ids[1]] });
     results = solve();
@@ -1046,7 +1064,7 @@ function lineupPitch(a, b) {
     const y = team === "s" ? PITCH_M + sl.y * PITCH_K : 1 - PITCH_M - sl.y * PITCH_K;
     const off = p && playPos(sl.id) !== sl.k;
     return `<div class="pl ${team === "s" ? "top" : ""}" style="left:${(x * 100).toFixed(1)}%;top:${(y * 100).toFixed(1)}%">
-      <span class="pdot ${team}${p ? "" : " empty"}">${sl.k}</span><span class="pnm">${p ? esc(short(p.name)) + (off ? "*" : "") : "frei"}</span></div>`;
+      <span class="pdot ${team}${p ? "" : " empty"}">${sl.k}</span><span class="pnm">${p ? esc(short(p.name)) + (off ? "*" : "") + (isLate(sl.id) ? " ⏰" : "") : "frei"}</span></div>`;
   };
   const bench = [...W.bench.map(id => `Weiß: ${esc(P(id).name)}`), ...S.bench.map(id => `Schwarz: ${esc(P(id).name)}`)];
   const offAny = [...W.slots, ...S.slots].some(sl => sl.id && playPos(sl.id) !== sl.k);
@@ -1333,8 +1351,15 @@ function renderMatchday() {
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
   html += `</section>`;
   if (n >= 11) html += positionPanel([...sel]);
+  const lateN = lateList().length;
   html += `<section class="panel"><div class="row"><button class="btn primary" data-act="build" ${n < 2 ? "disabled" : ""}>${cur.a ? "Neu mischen" : "Faire Teams erstellen"}</button>
+    <button class="btn latebtn ${lateN ? "on" : ""}" data-act="late-toggle" ${n < 2 ? "disabled" : ""} aria-expanded="${!!state.lateOpen}">⏰ Zu spät${lateN ? ` (${lateN})` : ""}</button>
     ${n % 2 ? `<span class="hint">Ungerade Zahl: ein Team hat einen Spieler mehr.</span>` : ""}</div>
+    ${state.lateOpen ? `<div class="latesheet"><b>Wer kommt evtl. zu spät?</b>
+      <p class="hint" style="margin:0">Wird auf beide Teams verteilt, nie zwei im selben Team.</p>
+      <div class="plist">${[...sel].map(P).filter(Boolean).sort((x, y) => surname(x).localeCompare(surname(y), "de")).map(p => `<label class="pick lateopt ${isLate(p.id) ? "on" : ""}">
+        <input type="checkbox" data-late="${p.id}" ${isLate(p.id) ? "checked" : ""}><span class="pos">${playPos(p.id) || "–"}</span><span class="nm">${esc(p.name)}</span></label>`).join("")}</div>
+      <div><button class="btn small-btn" data-act="late-toggle">Fertig</button></div></div>` : ""}
   </section>`;
 
   if (cur.a && cur.b) html += renderTeams();
@@ -1356,12 +1381,12 @@ function renderTeams() {
   const partial = [...cur.a, ...cur.b].filter(id => P(id) && isRated(P(id)) && !revealed(P(id))).length;
   const nopos = [...cur.a, ...cur.b].filter(id => P(id) && !P(id).pos).length;
   const stale = cur.a.length + cur.b.length !== cur.selected.filter(id => state.players[id]).length || missing.length
-    || (cur.builtAssign !== undefined && cur.builtAssign !== JSON.stringify(cur.assign || {}));
+    || (cur.builtAssign !== undefined && cur.builtAssign !== buildSig());
   const team = (key, title, t, st) => `
     <div class="team ${key}">
       <header><h3>${title}</h3><span class="stat">${st.n} Spieler · Ø ${st.shown ? f1(st.avg) + (st.shown < st.n ? ` (aus ${st.shown})` : "") : "?"}</span></header>
       <ol>${sortTeam(t).map(id => { const p = P(id); if (!p) return ""; return `<li><button data-swap="${id}" class="${state.swapSel === id ? "sel" : ""}">
-        <span class="pos">${playPos(id) || "–"}</span><span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
+        <span class="pos">${playPos(id) || "–"}</span><span class="nm">${esc(p.name)}${isLate(id) ? " ⏰" : ""}</span><span class="skill">${ovrText(p)}</span></button></li>`; }).join("")}</ol>
       <div class="posbar">${LINE_ORDER.map(k => `<span>${LINES[k]} ${st.byPos[k]}</span>`).join("")}</div>
     </div>`;
   return `
@@ -1681,7 +1706,7 @@ async function deletePlayer(id) {
 }
 function waText() {
   const c = state.current;
-  const line = id => { const p = P(id); return p ? `• ${p.name} (${playPos(id) || "–"})` : ""; };
+  const line = id => { const p = P(id); return p ? `• ${p.name} (${playPos(id) || "–"})${isLate(id) ? " ⏰" : ""}` : ""; };
   return `⚽ Montagskick, ${fmtDate(c.date)}\n\n⚪ Team Weiß (${c.a.length})\n${sortTeam(c.a).map(line).join("\n")}\n\n⚫ Team Schwarz (${c.b.length})\n${sortTeam(c.b).map(line).join("\n")}`;
 }
 async function copyText(text, fallbackEl) {
@@ -1836,8 +1861,9 @@ view.addEventListener("click", async (e) => {
       toast("Beispielspieler entfernt"); render(); break;
     }
     case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
-    case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; store.saveCurrent(); render(); break;
+    case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; store.saveCurrent(); render(); break;
     case "pf-clear": state.posFilter = null; render(); break;
+    case "late-toggle": state.lateOpen = !state.lateOpen; render(); break;
     case "clear-teams": {
       if (!state.confirmClearTeams) { state.confirmClearTeams = true; return render(); }
       state.confirmClearTeams = false; cur.a = null; cur.b = null; delete cur.builtAssign; state.swapSel = null;
@@ -1851,7 +1877,7 @@ view.addEventListener("click", async (e) => {
     case "build": {
       const ids = cur.selected.filter(id => state.players[id]);
       state.confirmClearTeams = false;
-      const res = buildTeams(ids); cur.a = res.a; cur.b = res.b; cur.builtAssign = JSON.stringify(cur.assign || {}); state.swapSel = null; store.saveCurrent(); render();
+      const res = buildTeams(ids); cur.a = res.a; cur.b = res.b; cur.builtAssign = buildSig(); state.swapSel = null; store.saveCurrent(); render();
       document.querySelector(".pitch")?.scrollIntoView({ behavior: "smooth", block: "start" });
       break;
     }
@@ -1863,7 +1889,7 @@ view.addEventListener("click", async (e) => {
       await store.putGame(g);
       toast(existing ? "Spieltag aktualisiert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
       cur.date = nextMonday(new Date(new Date(cur.date + "T12:00:00").getTime() + 864e5).toISOString().slice(0, 10));
-      cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; delete cur.builtAssign; store.saveCurrent();
+      cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; delete cur.builtAssign; store.saveCurrent();
       state.tab = "statistik"; render(); break;
     }
     case "export": {
@@ -1889,10 +1915,16 @@ view.addEventListener("click", async (e) => {
 view.addEventListener("change", async (e) => {
   const t = e.target;
   const cur = state.current;
+  if (t.dataset.late) {
+    const id = t.dataset.late, l = new Set(cur.late || []);
+    if (t.checked) l.add(id); else l.delete(id);
+    cur.late = [...l]; store.saveCurrent(); render(); return;
+  }
   if (t.dataset.pick) {
     const id = t.dataset.pick;
     cur.selected = t.checked ? [...new Set([...cur.selected, id])] : cur.selected.filter(x => x !== id);
     if (!t.checked && cur.assign && cur.assign[id]) { const a = { ...cur.assign }; delete a[id]; cur.assign = a; }
+    if (!t.checked && cur.late && cur.late.includes(id)) cur.late = cur.late.filter(x => x !== id);
     store.saveCurrent(); render();
   } else if (t.id === "gdate") { cur.date = t.value || nextMonday(); store.saveCurrent(); }
   else if (t.dataset.score) {
