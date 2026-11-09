@@ -857,6 +857,18 @@ async function refreshNow() {
   window.addEventListener("touchcancel", () => { pull = null; reset(); });
 })();
 
+// Changes arriving from the store must not redraw the page while someone is typing in a field
+// (that would throw them out of the field); redraw as soon as they leave it.
+function editingNow() {
+  const ae = document.activeElement;
+  const v = document.getElementById("view");
+  return !!(ae && v && v.contains(ae) && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && !["checkbox", "radio", "button"].includes(ae.type))));
+}
+function renderFromStore() { if (editingNow()) { state.pendingStore = true; return; } render(); }
+document.getElementById("view").addEventListener("focusout", () => setTimeout(() => {
+  if (state.pendingStore && !editingNow()) { state.pendingStore = false; render(); }
+}, 0));
+
 async function initDb() {
   if (!window.claude || typeof window.claude.use !== "function") return;
   let d = null;
@@ -881,7 +893,7 @@ async function initDb() {
       state.loaded = true; clearTimeout(timer);
       if (!migrated && fresh.players && fresh.ratings) { migrated = true; migrateLegacy(); migratePosVotes(); }
     }
-    render();
+    renderFromStore();
   };
   db.collection("ratings").onSnapshot(s => {
     state.ratings = Object.fromEntries(s.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
