@@ -263,6 +263,12 @@ tr.click:hover td { background: var(--bg); }
 .latesheet { border: 2px solid #7a4fd0; border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
 .pick.lateopt.on { border-color: #7a4fd0; background: #ece5fb; }
 .pick.lateopt input { accent-color: #7a4fd0; }
+.imgov { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.7); display: grid; place-items: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.imgov[hidden] { display: none; }
+.imgovbox { background: var(--surface); color: var(--ink); border-radius: 14px; padding: 14px; display: grid; gap: 10px; max-width: 460px; width: 100%; max-height: 100%; overflow: auto; }
+.imgovbox p { margin: 0; font-size: 14px; }
+.imgovbox img { width: 100%; height: auto; border-radius: 8px; -webkit-touch-callout: default; }
 .linegrp { display: grid; gap: 4px; }
 .linelab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
 .need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
@@ -356,6 +362,11 @@ details summary { cursor: pointer; font-weight: 600; }
   <div class="wrap" id="view"></div>
 </main>
 <div class="toast" id="toast" hidden></div>
+<div class="imgov" id="imgov" hidden role="dialog" aria-label="Aufstellung als Bild">
+  <div class="imgovbox"><p><b>Bild gedrückt halten</b> und „Sichern“ oder „Teilen“ wählen, dann in WhatsApp senden.</p>
+    <img id="imgovpic" alt="Aufstellung als Bild">
+    <button class="btn" type="button" onclick="document.getElementById('imgov').hidden = true">Schließen</button></div>
+</div>
 <div class="ptr" id="ptr" aria-live="polite">↓ Zum Aktualisieren ziehen</div>
 
 <script>
@@ -1092,6 +1103,89 @@ function distributionPanel(a, b) {
       <div class="pairs">${rows}</div></div></details>`;
 }
 
+// Draws the lineup (both teams, 4-2-3-1) into a PNG for sharing. Uses lineupOf, playPos, isLate, P, fmtDate.
+async function lineupImage(a, b, date) {
+  try { await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 30px "Barlow"'); } catch (e) {}
+  const W = 1080, H = 1920, PX = 60, PY = 262, PW = W - 2 * PX, PH = 1452;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  const DISP = '"Barlow Condensed", "Arial Narrow", sans-serif', BODY = '"Barlow", system-ui, sans-serif';
+  // background + header
+  g.fillStyle = "#0f3d23"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#f4f8f2"; g.textAlign = "center"; g.textBaseline = "alphabetic";
+  g.font = `700 64px ${DISP}`; g.fillText("SCHNEPPENHAUSEN", W / 2, 92);
+  g.font = `600 34px ${BODY}`; g.fillStyle = "rgba(244,248,242,.8)";
+  g.fillText(`Montagskick · ${fmtDate(date)} · 4-2-3-1`, W / 2, 142);
+  // pitch with stripes
+  const stripes = 12;
+  for (let i = 0; i < stripes; i++) { g.fillStyle = i % 2 ? "#277443" : "#2a7d47"; g.fillRect(PX, PY + i * PH / stripes, PW, PH / stripes + 1); }
+  g.strokeStyle = "rgba(255,255,255,.6)"; g.lineWidth = 4;
+  const sx = v => PX + v / 100 * PW, sy = v => PY + v / 180 * PH;
+  g.strokeRect(sx(3), sy(3), sx(97) - sx(3), sy(177) - sy(3));
+  g.beginPath(); g.moveTo(sx(3), sy(90)); g.lineTo(sx(97), sy(90)); g.stroke();
+  g.beginPath(); g.arc(sx(50), sy(90), (sx(10) - sx(0)), 0, Math.PI * 2); g.stroke();
+  for (const [x, y, w, h] of [[22, 3, 56, 20], [36, 3, 28, 8], [22, 157, 56, 20], [36, 169, 28, 8]]) g.strokeRect(sx(x), sy(y), sx(x + w) - sx(x), sy(y + h) - sy(y));
+  // players
+  const short = n => { const parts = (n || "").trim().split(/\s+/); return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0]; };
+  const R = 34;
+  const draw = (lineup, team) => {
+    for (const sl of lineup.slots) {
+      const p = sl.id && P(sl.id);
+      const x = PX + (team === "s" ? 1 - sl.x : sl.x) * PW;
+      const yr = team === "s" ? PITCH_M + sl.y * PITCH_K : 1 - PITCH_M - sl.y * PITCH_K;
+      const y = PY + yr * PH;
+      // dot
+      g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2);
+      g.fillStyle = team === "w" ? "#ffffff" : "#141815"; g.fill();
+      g.lineWidth = 4; g.strokeStyle = team === "w" ? "#c3c9c2" : "#ffffff"; g.stroke();
+      g.fillStyle = team === "w" ? "#142019" : "#ffffff"; g.font = `700 26px ${DISP}`; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(sl.k, x, y + 1);
+      // name label (toward own goal)
+      const label = p ? short(p.name) + (playPos(sl.id) !== sl.k ? "*" : "") + (isLate(sl.id) ? " ⏰" : "") : "frei";
+      g.font = `600 28px ${BODY}`;
+      const tw = Math.min(g.measureText(label).width, 230) + 24, th = 40;
+      const ly = team === "s" ? y - R - 8 - th : y + R + 8;
+      g.fillStyle = "rgba(0,0,0,.55)";
+      const rx = x - tw / 2, rr = 10;
+      g.beginPath(); g.moveTo(rx + rr, ly); g.arcTo(rx + tw, ly, rx + tw, ly + th, rr); g.arcTo(rx + tw, ly + th, rx, ly + th, rr); g.arcTo(rx, ly + th, rx, ly, rr); g.arcTo(rx, ly, rx + tw, ly, rr); g.fill();
+      g.fillStyle = "#ffffff"; g.textBaseline = "middle"; g.fillText(label, x, ly + th / 2 + 1, 230);
+    }
+  };
+  draw(lineupOf(b), "s"); draw(lineupOf(a), "w");
+  // team tags + legend
+  const tag = (text, y, team) => {
+    g.font = `700 34px ${DISP}`; const w = g.measureText(text).width + 90, x = W / 2 - w / 2;
+    g.fillStyle = "#f4f8f2"; g.beginPath(); g.roundRect ? g.roundRect(x, y - 30, w, 60, 30) : g.rect(x, y - 30, w, 60); g.fill();
+    g.beginPath(); g.arc(x + 34, y, 12, 0, Math.PI * 2); g.fillStyle = team === "w" ? "#fff" : "#141815"; g.fill(); g.lineWidth = 3; g.strokeStyle = "#8a958d"; g.stroke();
+    g.fillStyle = "#142019"; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(text, x + 58, y + 2); g.textAlign = "center";
+  };
+  tag("TEAM SCHWARZ", PY - 42, "s");
+  tag("TEAM WEISS", PY + PH + 46, "w");
+  const notes = [];
+  if ([...a, ...b].some(isLate)) notes.push("⏰ kommt evtl. später");
+  if ([...lineupOf(a).slots, ...lineupOf(b).slots].some(sl => sl.id && playPos(sl.id) !== sl.k)) notes.push("* nicht auf Hauptposition");
+  if (notes.length) { g.font = `500 30px ${BODY}`; g.fillStyle = "rgba(244,248,242,.85)"; g.textBaseline = "alphabetic"; g.fillText(notes.join("   ·   "), W / 2, H - 40); }
+  return await new Promise(res => cv.toBlob(res, "image/png"));
+}
+
+// Share the lineup as a picture: the platform's save/share dialog where available, else show it to long-press.
+async function shareLineupImage() {
+  const c = state.current; if (!c.a || !c.b) return;
+  toast("Bild wird erstellt …");
+  const blob = await lineupImage(c.a, c.b, c.date);
+  const filename = `Aufstellung-${c.date || today()}.png`;
+  let dl = null;
+  try { dl = window.claude && typeof window.claude.use === "function" ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  if (dl) {
+    try { await dl.save({ filename, data: blob }); toast("Bild bereit zum Teilen"); return; }
+    catch (e) { if (e && e.code === "declined") { toast("Abgebrochen"); return; } }
+  }
+  const ov = document.getElementById("imgov"), img = document.getElementById("imgovpic");
+  if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+  img.dataset.url = URL.createObjectURL(blob); img.src = img.dataset.url;
+  ov.hidden = false;
+}
+
 // ---------- position check before building teams ----------
 function positionCheck(ids) {
   const c = {}; let unknown = [];
@@ -1406,6 +1500,7 @@ function renderTeams() {
     <p class="hint">Tausch von Hand: einen Spieler antippen, dann einen aus dem anderen Team. Die Stärkewerte sind nur für dich und kommen nicht in den WhatsApp-Text.</p>
     <div class="row">
       <button class="btn primary" data-act="copy">Für WhatsApp kopieren</button>
+      <button class="btn" data-act="share-img">Aufstellung als Bild</button>
       <button class="btn" data-act="save-game">Spieltag speichern</button>
       <button class="btn ghost danger" data-act="clear-teams">${state.confirmClearTeams ? "Wirklich verwerfen?" : "Teams verwerfen"}</button>
     </div>
@@ -1882,6 +1977,7 @@ view.addEventListener("click", async (e) => {
       break;
     }
     case "copy": copyText(waText(), document.getElementById("wa")); break;
+    case "share-img": await shareLineupImage(); break;
     case "save-game": {
       const existing = Object.values(state.games).find(g => g.date === cur.date);
       const g = { id: existing ? existing.id : uid(), date: cur.date, a: cur.a.slice(), b: cur.b.slice() };
