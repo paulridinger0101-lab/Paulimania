@@ -269,6 +269,37 @@ tr.click:hover td { background: var(--bg); }
 .imgovbox { background: var(--surface); color: var(--ink); border-radius: 14px; padding: 14px; display: grid; gap: 10px; max-width: 460px; width: 100%; max-height: 100%; overflow: auto; }
 .imgovbox p { margin: 0; font-size: 14px; }
 .imgovbox img { width: 100%; height: auto; border-radius: 8px; -webkit-touch-callout: default; }
+/* statistics */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--bg); text-align: center; display: grid; }
+.tile b { font-family: var(--font-display); font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 12px; color: var(--muted); }
+.duel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-weight: 600; font-size: 14px; }
+.duelbar { height: 12px; border-radius: 6px; overflow: hidden; display: flex; border: 1px solid var(--line); background: var(--bg); }
+.duelbar i { display: block; height: 100%; }
+.duelbar i.w { background: #e6e9e5; } .duelbar i.d { background: var(--accent); opacity: .45; } .duelbar i.s { background: #0b0d0c; box-shadow: inset 0 0 0 1px #6b7770; }
+.mc { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.mc.open { border: 2px dashed var(--accent); }
+.mchd { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--muted); background: var(--bg); font-weight: 600; }
+.mcsb { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; }
+.mctm { padding: 12px 10px; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 700; font-size: 18px; text-transform: uppercase; }
+.mctm.w { background: #f4f6f3; color: #142019; }
+.mctm.s { background: #0b0d0c; color: #fff; justify-content: flex-end; box-shadow: inset 1px 0 0 var(--line); }
+.mctm.s .tdot.s { border-color: #fff; }
+.scnum { border: 0; background: transparent; cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 36px; padding: 0 14px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.scnum.todo { font-size: 17px; line-height: 1.1; color: var(--accent); }
+.scedit { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-family: var(--font-display); font-weight: 700; font-size: 26px; }
+.scedit input { width: 58px; text-align: center; font-size: 22px; font-weight: 700; padding: 6px 4px; }
+.mcft { padding: 6px 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.winchip { font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; background: var(--accent); color: #fff; border-radius: 99px; padding: 2px 8px; }
+.linkbtn { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 0; }
+.mcdet { padding: 8px 12px 10px; display: grid; gap: 6px; font-size: 13.5px; border-top: 1px solid var(--line); }
+.ps { display: grid; gap: 8px; }
+.psr { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.rk { font-family: var(--font-display); font-weight: 700; color: var(--muted); font-size: 16px; text-align: center; }
+.psn { font-weight: 600; font-size: 14.5px; }
+.psm { font-size: 12.5px; color: var(--muted); }
+.psq { font-variant-numeric: tabular-nums; font-size: 14px; }
 .linegrp { display: grid; gap: 4px; }
 .linelab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
 .need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
@@ -301,7 +332,7 @@ tr.click:hover td { background: var(--bg); }
   letter-spacing: .6px; text-transform: uppercase; padding: 5px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); }
 .tdot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
 .tdot.w { background: #fff; border: 2px solid #c3c9c2; }
-.tdot.s { background: #141815; border: 2px solid #141815; }
+.tdot.s { background: #141815; border: 2px solid #6b7770; }
 .pitchlab { position: absolute; left: 8px; font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: .5px; text-transform: uppercase; color: rgba(255,255,255,.85); }
 .pitchlab.top { top: 46%; } .pitchlab.bot { top: 51%; }
 .pairs { display: grid; gap: 6px; font-size: 13.5px; }
@@ -1692,46 +1723,63 @@ function renderBackup() {
 
 function renderStats() {
   const players = playerList();
-  const games = sortedGames();
+  const games = sortedGames().slice().reverse(); // oldest first, new matchdays are added below
   if (!games.length) {
     view.innerHTML = `<div class="panel empty"><h2>Noch keine Statistik</h2>
-      <p class="muted" style="max-width:46ch">Sobald du unter „Spieltag“ Teams erstellt und auf „Spieltag speichern“ gedrückt hast, siehst du hier, wer wie oft dabei war, wer nächste Woche Vorrecht hat, und alle Ergebnisse.</p>
+      <p class="muted" style="max-width:46ch">Sobald du unter „Spieltag“ Teams erstellt und auf „Spieltag speichern“ gedrückt hast, siehst du hier die Saison, alle Ergebnisse und wer wie oft dabei war.</p>
       <button class="btn primary" data-act="goto-matchday">Zum Spieltag</button></div>`;
     return;
   }
+  const has = g => typeof g.scoreA === "number" && typeof g.scoreB === "number";
+  const played = games.filter(has);
+  const goals = played.reduce((n, g) => n + g.scoreA + g.scoreB, 0);
+  const wW = played.filter(g => g.scoreA > g.scoreB).length, wS = played.filter(g => g.scoreB > g.scoreA).length, dr = played.length - wW - wS;
+  const pct = v => played.length ? (v / played.length * 100).toFixed(1) : 0;
+
+  // ---- season summary
+  let html = `<section class="panel"><h2>Saison</h2>
+    <div class="tiles"><div class="tile"><b>${games.length}</b><span>Spieltag${games.length === 1 ? "" : "e"}</span></div>
+      <div class="tile"><b>${played.length ? goals : "–"}</b><span>Tore</span></div>
+      <div class="tile"><b>${played.length ? f1(goals / played.length) : "–"}</b><span>Tore/Spiel</span></div></div>
+    ${played.length ? `<div class="duel"><span><span class="tdot w"></span> Weiß ${wW}</span>
+      <div class="duelbar"><i style="width:${pct(wW)}%" class="w"></i><i style="width:${pct(dr)}%" class="d"></i><i style="width:${pct(wS)}%" class="s"></i></div>
+      <span>${wS} Schwarz <span class="tdot s"></span></span></div>
+      <p class="hint" style="text-align:center;margin:0">${dr} Unentschieden</p>`
+      : `<p class="hint" style="margin:0">Sobald ein Ergebnis eingetragen ist, steht hier die Bilanz Weiß gegen Schwarz.</p>`}
+  </section>`;
+
+  // ---- results as match cards
+  html += `<section class="panel"><h2>Ergebnisse</h2>${games.map((g, i) => {
+    const done = has(g), edit = state.editScore === g.id || !done && state.editScore === g.id, open = state.openGame === g.id;
+    const res = !done ? "" : g.scoreA > g.scoreB ? `<span class="winchip">Sieg Weiß</span>` : g.scoreB > g.scoreA ? `<span class="winchip">Sieg Schwarz</span>` : `<span class="chip">Unentschieden</span>`;
+    const centre = edit
+      ? `<div class="scedit"><input type="number" min="0" inputmode="numeric" id="sa-${g.id}" value="${g.scoreA ?? ""}" aria-label="Tore Weiß"><span>:</span><input type="number" min="0" inputmode="numeric" id="sb-${g.id}" value="${g.scoreB ?? ""}" aria-label="Tore Schwarz"></div>`
+      : done ? `<button class="scnum" data-editscore="${g.id}" title="Ergebnis ändern">${g.scoreA} : ${g.scoreB}</button>`
+      : `<button class="scnum todo" data-editscore="${g.id}">Ergebnis<br>eintragen</button>`;
+    const names = ids => ids.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ");
+    return `<div class="mc ${done ? "" : "open"}">
+      <div class="mchd"><span>Spieltag ${i + 1} · ${fmtDate(g.date)}</span><span>${g.a.length + g.b.length} Spieler</span></div>
+      <div class="mcsb"><div class="mctm w"><span class="tdot w"></span>Weiß</div>${centre}<div class="mctm s">Schwarz<span class="tdot s"></span></div></div>
+      ${edit ? `<div class="mcft"><span class="hint">Tore Weiß : Tore Schwarz</span><span class="row"><button class="btn small-btn ghost" data-act="cancel-score">Abbrechen</button><button class="btn small-btn primary" data-savescore="${g.id}">Speichern</button></span></div>`
+        : `<div class="mcft"><span>${res}</span><button class="linkbtn" data-opengame="${g.id}" aria-expanded="${open}">Aufstellung ${open ? "▴" : "›"}</button></div>`}
+      ${open ? `<div class="mcdet"><div><b>Weiß:</b> ${names(g.a)}</div><div><b>Schwarz:</b> ${names(g.b)}</div>
+        <div><button class="btn small-btn ghost danger" data-delgame="${g.id}">${state.confirmGame === g.id ? "Wirklich löschen?" : "Spieltag löschen"}</button></div></div>` : ""}
+    </div>`;
+  }).join("")}</section>`;
+
+  // ---- players as a ranking
   const stats = playerStats();
   const lg = lastGame();
   const order = players.slice().sort((x, y) => stats[y.id].total - stats[x.id].total || x.name.localeCompare(y.name, "de"));
-  view.innerHTML = `<section class="panel">
-    <h2>Statistik</h2>
-    ${intro("Wer war wie oft dabei? „Vorrecht“ heißt: war beim letzten gespeicherten Spieltag dabei. Die Punkte zeigen die letzten 8 Spieltage, links der neueste.")}
-    <div class="tablewrap"><table>
-      <thead><tr><th>Name</th><th>Status</th><th>Letzte 8</th><th class="num">Spiele</th><th class="num">S-U-N</th><th>Zuletzt</th></tr></thead>
-      <tbody>${order.map(p => { const st = stats[p.id]; const s = statusOf(p, st, lg); return `
-        <tr>
-          <td><b>${esc(p.name)}</b>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}</td>
-          <td><span class="chip ${s.cls}">${s.label}</span></td>
-          <td><span class="dots">${st.recent.map(x => `<i class="${x ? "on" : ""}"></i>`).join("")}</span></td>
-          <td class="num">${st.total}</td>
-          <td class="num">${st.w}-${st.d}-${st.l}</td>
-          <td>${fmtDate(st.last)}</td>
-        </tr>`; }).join("")}</tbody>
-    </table></div>
-  </section>
-  <section class="panel"><h2>Ergebnisse</h2>
-    ${intro("Ergebnis nachtragen, dann zählen Siege, Unentschieden und Niederlagen (S-U-N) oben mit.")}
-    ${games.map(g => `<div class="game">
-      <div class="row spread"><b>${fmtDate(g.date)}</b>
-        <div class="score"><span class="chip" style="background:var(--team-a-soft);color:var(--ink);border:1px solid var(--team-a)">Weiß</span>
-        <input type="number" min="0" inputmode="numeric" id="sa-${g.id}" data-score="${g.id}" data-side="a" value="${g.scoreA ?? ""}" aria-label="Tore Weiß">
-        <span>:</span>
-        <input type="number" min="0" inputmode="numeric" id="sb-${g.id}" data-score="${g.id}" data-side="b" value="${g.scoreB ?? ""}" aria-label="Tore Schwarz">
-        <span class="chip" style="background:var(--team-b);color:#fff">Schwarz</span></div></div>
-      <div class="small muted"><b style="color:var(--ink)">Weiß:</b> ${g.a.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
-      <div class="small muted"><b style="color:var(--ink)">Schwarz:</b> ${g.b.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ")}</div>
-      <div><button class="btn ghost danger" data-delgame="${g.id}">${state.confirmGame === g.id ? "Wirklich löschen?" : "Spieltag löschen"}</button></div>
-    </div>`).join("")}
+  html += `<section class="panel"><h2>Wer war wie oft dabei?</h2>
+    <div class="ps">${order.map((p, i) => { const st = stats[p.id]; const s = statusOf(p, st, lg); const q = Math.round(st.total / games.length * 100); return `
+      <div class="psr"><span class="rk">${st.total ? i + 1 : "–"}</span>
+        <div style="min-width:0"><div class="psn">${esc(p.name)} <span class="chip ${s.cls}">${s.label}</span>${p.active === false ? ` <span class="chip plain">pausiert</span>` : ""}</div>
+          <div class="psm"><span class="dots">${st.recent.slice().reverse().map(x => `<i class="${x ? "on" : ""}"></i>`).join("")}</span> · ${st.total} Spiel${st.total === 1 ? "" : "e"} · ${st.w}-${st.d}-${st.l}</div></div>
+        <b class="psq">${q} %</b></div>`; }).join("")}</div>
+    <p class="hint" style="margin:0">Punkte = letzte Spieltage, links der älteste. S-U-N = Siege, Unentschieden, Niederlagen. Prozent = Anteil der gespeicherten Spieltage.</p>
   </section>`;
+  view.innerHTML = html;
 }
 
 /* ---------- own averages (only for the organizer himself, once all others rated) ---------- */
@@ -1828,7 +1876,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
@@ -1837,6 +1885,15 @@ view.addEventListener("click", async (e) => {
     state.confirmRelease = null; await releaseClaim(t.dataset.release); return;
   }
   if (t.dataset.delrow) { state.confirmRow = t.dataset.delrow; return render(); }
+  if (t.dataset.editscore) { state.editScore = t.dataset.editscore; render(); document.getElementById("sa-" + t.dataset.editscore)?.focus(); return; }
+  if (t.dataset.opengame) { state.openGame = state.openGame === t.dataset.opengame ? null : t.dataset.opengame; state.confirmGame = null; return render(); }
+  if (t.dataset.savescore) {
+    const g = { ...state.games[t.dataset.savescore] };
+    const a = document.getElementById("sa-" + g.id).value, b = document.getElementById("sb-" + g.id).value;
+    if ((a === "") !== (b === "")) { toast("Bitte beide Zahlen eintragen."); return; }
+    if (a !== "") { g.scoreA = Math.max(0, Math.round(+a)); g.scoreB = Math.max(0, Math.round(+b)); } else { delete g.scoreA; delete g.scoreB; }
+    state.editScore = null; await store.putGame(g); render(); toast(a !== "" ? "Ergebnis gespeichert" : "Ergebnis entfernt"); return;
+  }
   if (t.dataset.pf) { state.posFilter = state.posFilter === t.dataset.pf ? null : t.dataset.pf; render(); document.querySelector(".fbar, .plist")?.scrollIntoView({ block: "nearest" }); return; }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
@@ -1970,6 +2027,7 @@ view.addEventListener("click", async (e) => {
     case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
     case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; store.saveCurrent(); render(); break;
     case "pf-clear": state.posFilter = null; render(); break;
+    case "cancel-score": state.editScore = null; render(); break;
     case "late-toggle": state.lateOpen = !state.lateOpen; render(); break;
     case "clear-teams": {
       if (!state.confirmClearTeams) { state.confirmClearTeams = true; return render(); }
@@ -2050,6 +2108,7 @@ view.addEventListener("input", (e) => {
 });
 view.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.dataset?.edit) e.target.click();
+  if (e.key === "Enter" && /^s[ab]-/.test(e.target.id || "")) { const id = e.target.id.slice(3); view.querySelector(`[data-savescore="${id}"]`)?.click(); }
   if (e.key === "Enter" && e.target.id === "qadd") view.querySelector('[data-act="quick-add"]')?.click();
   if (e.key === "Enter" && e.target.id === "pname") view.querySelector('[data-act="save-player"]')?.click();
 });
