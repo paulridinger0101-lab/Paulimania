@@ -181,6 +181,26 @@ input[type="text"], input[type="date"], input[type="number"], select, textarea {
 .balance b { font-variant-numeric: tabular-nums; }
 .hint { font-size: 14px; color: var(--muted); }
 
+/* Soccerhalle */
+.hgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 360px) { .hgrid { grid-template-columns: 1fr; } }
+.hteam { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); min-width: 0; }
+.hteam header { background: var(--hc); color: var(--hci, #fff); padding: 7px 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.hteam header h3 { color: inherit; font-size: 19px; }
+.hteam header span { font-size: 13px; font-weight: 600; opacity: .92; font-variant-numeric: tabular-nums; }
+.hteam ol { list-style: none; margin: 0; padding: 4px; display: grid; gap: 1px; }
+.hteam li.sep { border-top: 1px dashed var(--line); margin: 3px 6px; }
+.hteam li button { width: 100%; display: flex; align-items: center; gap: 6px; text-align: left; border: 1px solid transparent; background: transparent; padding: 5px 6px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--ink); }
+.hteam li button.sel { border-color: var(--hc); background: var(--bg); }
+.hteam li .k { font-family: var(--font-display); font-weight: 700; color: var(--muted); font-size: 13px; width: 28px; flex: none; }
+.hteam li .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hstrip { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.hstrip span { border-radius: 8px; padding: 6px; text-align: center; font-weight: 700; font-size: 14px; background: var(--bg); color: var(--muted); }
+.hstrip span.ok { background: var(--accent-soft); color: var(--accent); }
+.hstrip span.miss { background: #ffe9a8; color: #6d4c00; }
+.hstrip span.over { background: #ffd9d4; color: #8a1f12; }
+@media (max-width: 520px) { nav.tabs button { padding: 8px 9px 10px; font-size: 16px; letter-spacing: .3px; } }
+
 /* Tables */
 .tablewrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
@@ -389,6 +409,7 @@ details summary { cursor: pointer; font-weight: 600; }
       <button role="tab" data-tab="spieler" aria-selected="false">Spieler</button>
       <button role="tab" data-tab="spieltag" aria-selected="true">Spieltag</button>
       <button role="tab" data-tab="kleinfeld" aria-selected="false">Kleinfeld</button>
+      <button role="tab" data-tab="halle" aria-selected="false">Halle</button>
       <button role="tab" data-tab="statistik" aria-selected="false">Statistik</button>
     </nav>
   </div>
@@ -718,6 +739,7 @@ const state = {
   games: {},     // id -> {id, date, a:[ids], b:[ids], scoreA, scoreB}
   big: { date: nextMonday(), selected: [], a: null, b: null },
   small: { date: nextMonday(), selected: [], a: null, b: null, format: 8 },
+  hall: { date: nextMonday(), selected: [], teams: null, k: 4 },   // Soccerhalle: 2-4 teams of 5
   field: "big",   // "big" = Großfeld (Spieltag), "small" = Kleinfeld
   editing: null, // player id or "new"
   swapSel: null,
@@ -772,10 +794,10 @@ let db = null;
 const store = {
   saveLocal() {
     const players = Object.fromEntries(Object.values(state.players).map(p => { const o = { ...p }; if ("sharedPos" in o) { o.pos = o.sharedPos; o.pos2 = o.sharedPos2; delete o.sharedPos; delete o.sharedPos2; delete o.posInfo; } return [p.id, o]; }));
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ players, games: state.games, current: state.big, small: state.small, ratings: state.ratings })); } catch (e) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ players, games: state.games, current: state.big, small: state.small, hall: state.hall, ratings: state.ratings })); } catch (e) {}
   },
   loadLocal() {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), big: Object.assign(state.big, d.current || {}), small: Object.assign(state.small, d.small || {}) }); } } catch (e) {}
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), big: Object.assign(state.big, d.current || {}), small: Object.assign(state.small, d.small || {}), hall: Object.assign(state.hall, d.hall || {}) }); } } catch (e) {}
     computeAvg();
   },
   async putPlayer(p) {
@@ -840,14 +862,16 @@ const store = {
   saveCurrent() { const f = state.field; curSeqF[f]++; (f === "small" ? saveSmallSoon : saveCurrentSoon)(); },
 };
 // per field: local changes win over older copies coming back from the store
-const curSeqF = { big: 0, small: 0 }, curSavedF = { big: 0, small: 0 };
+const curSeqF = { big: 0, small: 0, hall: 0 }, curSavedF = { big: 0, small: 0, hall: 0 };
 const makeSaver = (f, path) => debounce(async () => {
   const seq = curSeqF[f];
   if (db) await dbWrite(db.doc(path).set(JSON.parse(JSON.stringify(state[f]))));
   else store.saveLocal();
   curSavedF[f] = Math.max(curSavedF[f], seq);
 }, 400);
-const saveCurrentSoon = makeSaver("big", "meta/current"), saveSmallSoon = makeSaver("small", "meta/small");
+const saveCurrentSoon = makeSaver("big", "meta/current"), saveSmallSoon = makeSaver("small", "meta/small"), saveHallSoon = makeSaver("hall", "meta/hall");
+function saveHall() { curSeqF.hall++; saveHallSoon(); }
+const HALL_DEFAULT = () => ({ date: nextMonday(), selected: [], teams: null, k: 4 });
 async function dbWrite(p) {
   try { await p; } catch (e) { toast(e && e.code === "quota_exceeded" ? "Speicher voll: alte Spieltage löschen." : "Speichern fehlgeschlagen. Verbindung prüfen."); }
 }
@@ -865,6 +889,7 @@ async function refreshNow() {
       state.ratings = Object.fromEntries(rs.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
       state.revoked = (orga.exists && (orga.data() || {}).revoked) || [];
       if (cur.exists && curSeqF.big === curSavedF.big) state.big = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(cur.data())));
+      try { const hl = await db.doc("meta/hall").get(); if (hl.exists && curSeqF.hall === curSavedF.hall) state.hall = Object.assign(HALL_DEFAULT(), JSON.parse(JSON.stringify(hl.data()))); } catch (e) {}
       try { const sm = await db.doc("meta/small").get(); if (sm.exists && curSeqF.small === curSavedF.small) state.small = Object.assign({ date: nextMonday(), selected: [], a: null, b: null, format: 8 }, JSON.parse(JSON.stringify(sm.data()))); } catch (e) {}
       refreshMe(); computeAvg();
     } catch (e) { toast("Aktualisieren hat nicht geklappt. Verbindung prüfen."); return false; }
@@ -974,6 +999,14 @@ async function initDb() {
       const next = Object.assign({ date: nextMonday(), selected: [], a: null, b: null, format: 8 }, JSON.parse(JSON.stringify(s.data())));
       if (JSON.stringify(next) === JSON.stringify(state.small)) return;
       state.small = next;
+      if (state.loaded) renderFromStore();
+    }
+  }, () => {});
+  db.doc("meta/hall").onSnapshot(s => {
+    if (s.exists && !s.metadata.hasPendingWrites && curSeqF.hall === curSavedF.hall) {
+      const next = Object.assign(HALL_DEFAULT(), JSON.parse(JSON.stringify(s.data())));
+      if (JSON.stringify(next) === JSON.stringify(state.hall)) return;
+      state.hall = next;
       if (state.loaded) renderFromStore();
     }
   }, () => {});
@@ -1443,7 +1476,8 @@ function render() {
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
   if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Spieler werden geladen …</p></div>`; return; }
   state.field = state.tab === "kleinfeld" ? "small" : state.tab === "spieltag" ? "big" : state.field;
-  if (state.tab === "spieltag" || state.tab === "kleinfeld") renderMatchday();
+  if (state.tab === "halle") renderHall();
+  else if (state.tab === "spieltag" || state.tab === "kleinfeld") renderMatchday();
   else if (state.tab === "spieler") renderPlayers();
   else renderStats();
 }
@@ -1555,6 +1589,167 @@ function renderMatchday() {
 
   if (cur.a && cur.b) html += renderTeams();
   view.innerHTML = html;
+}
+
+/* ---------- Soccerhalle: 2-4 teams of 5 (3 defensive, 2 offensive), no goalkeeper ---------- */
+const HALL_DEF = new Set(["TW", "LV", "IV", "RV", "ZM"]);
+const HALL_TEAMS = [["Rot", "#d64545", "#fff", "🔴"], ["Blau", "#2f6fd6", "#fff", "🔵"], ["Gelb", "#e0b100", "#142019", "🟡"], ["Grün", "#2f9e57", "#fff", "🟢"]];
+function hallRole(id) { const p = P(id); if (!p || !p.pos) return ""; return HALL_DEF.has(p.pos) ? "DEF" : "OFF"; }
+function hallK() { const k = +state.hall.k; return [2, 3, 4].includes(k) ? k : 4; }
+function hallSort(t) { return t.slice().sort((x, y) => ({ DEF: 0, OFF: 1, "": 2 }[hallRole(x)] - { DEF: 0, OFF: 1, "": 2 }[hallRole(y)]) || ovr(P(y)) - ovr(P(x))); }
+// Every team gets as many defenders as possible equal (3 of 5) and the same strength.
+function buildHall(ids, k) {
+  const val = {}, def = {}; for (const id of ids) { val[id] = ovr(P(id)); def[id] = hallRole(id) === "DEF" ? 1 : hallRole(id) === "OFF" ? 0 : null; }
+  const known = ids.filter(id => def[id] !== null), D = known.filter(id => def[id]).length;
+  const cost = teams => {
+    let c = 0; const avgs = teams.map(t => t.reduce((s, id) => s + val[id], 0) / Math.max(1, t.length) * 5);
+    const m = avgs.reduce((s, v) => s + v, 0) / k;
+    for (const v of avgs) c += (v - m) ** 2 * 3;
+    for (const t of teams) {
+      const kn = t.filter(id => def[id] !== null).length, d = t.filter(id => def[id] === 1).length;
+      const want = known.length ? D * t.length / ids.length : 0;
+      c += (d - want) ** 2 * 40 + (kn ? 0 : 0);
+    }
+    return c;
+  };
+  const results = [];
+  for (let r = 0; r < 40; r++) {
+    const sh = ids.slice().sort(() => Math.random() - .5);
+    const teams = Array.from({ length: k }, () => []); sh.forEach((id, i) => teams[i % k].push(id));
+    let best = cost(teams), better = true;
+    while (better) {
+      better = false;
+      for (let a = 0; a < k; a++) for (let b = a + 1; b < k; b++) for (let i = 0; i < teams[a].length; i++) for (let j = 0; j < teams[b].length; j++) {
+        const x = teams[a][i], y = teams[b][j]; teams[a][i] = y; teams[b][j] = x;
+        const c = cost(teams);
+        if (c < best - 1e-9) { best = c; better = true; } else { teams[a][i] = x; teams[b][j] = y; }
+      }
+    }
+    results.push({ c: best, teams: teams.map(t => t.slice()) });
+  }
+  const min = Math.min(...results.map(x => x.c));
+  const good = results.filter(x => x.c <= min + 0.6);
+  return good[Math.floor(Math.random() * good.length)].teams;
+}
+function renderHall() {
+  if (!Object.keys(state.players).length) { view.innerHTML = emptySquad("spieltag"); return; }
+  const h = state.hall, k = hallK(), TGT = k * 5;
+  const players = playerList().filter(p => p.active !== false);
+  const sel = new Set(h.selected.filter(id => state.players[id]));
+  const n = sel.size;
+  const byStrength = (x, y) => (revealed(y) - revealed(x)) || (revealed(x) ? ovr(y) - ovr(x) : 0) || x.name.localeCompare(y.name, "de");
+  const dN = [...sel].filter(id => hallRole(id) === "DEF").length, oN = [...sel].filter(id => hallRole(id) === "OFF").length;
+  const cls = (have, need) => have === need ? "ok" : have > need ? "over" : "miss";
+  const q = state.filter.trim().toLowerCase();
+  const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
+  const row = p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
+      <input type="checkbox" data-hpick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
+      <span class="pos">${hallRole(p.id) || "–"}</span><span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></label>`;
+  const block = (title, list) => {
+    if (!list.length) return "";
+    const parts = [["DEF", "Defensiv"], ["OFF", "Offensiv"], ["", "Ohne Position"]].map(([r, lab]) => {
+      const part = list.filter(p => hallRole(p.id) === r);
+      return part.length ? `<div class="linegrp"><span class="linelab">${lab} · ${part.length}</span><div class="plist">${part.map(row).join("")}</div></div>` : "";
+    }).join("");
+    return `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3>${parts}</div>`;
+  };
+  let html = `<section class="panel">
+    <div class="row spread">
+      <div style="display:grid;gap:4px">
+        <h2>Soccerhalle</h2>
+        <div class="seg" role="group" aria-label="Anzahl Teams">${[2, 3, 4].map(x => `<button data-hallk="${x}" aria-pressed="${k === x}">${x} Teams</button>`).join("")}</div>
+        ${intro("Hake an, wer in die Halle kommt. Gespielt wird ohne Torwart, je Team 3 Defensive und 2 Offensive.")}
+        <div class="row small"><label for="hdate" class="muted">Datum</label><input type="date" id="hdate" value="${esc(h.date)}"></div>
+      </div>
+      <div style="display:grid;gap:6px;min-width:150px">
+        <div class="counter"><b>${n}</b><span>/ ${TGT} dabei</span></div>
+        <div class="meter ${n > TGT ? "over" : ""}"><i style="width:${Math.min(100, n / TGT * 100)}%"></i></div>
+      </div>
+    </div>
+    <div class="hstrip"><span class="${cls(dN, k * 3)}">Defensiv ${dN}/${k * 3}</span><span class="${cls(oN, k * 2)}">Offensiv ${oN}/${k * 2}</span></div>
+    <p class="hint" style="margin:0">Defensiv: TW, LV, IV, RV, ZM · Offensiv: ZOM, LF, RF, ST (nach Hauptposition).</p>
+    <div class="filters">
+      <input type="text" id="filter" placeholder="Spieler suchen" value="${esc(state.filter)}" style="flex:1;min-width:160px">
+      <button class="btn ghost" data-act="h-none">Auswahl leeren</button>
+    </div>
+    ${block(`Dabei (${n}), nach Stärke`, shown.filter(p => sel.has(p.id)).sort(byStrength))}
+    ${block(n ? "Noch nicht dabei, nach Stärke" : "Alle Spieler, nach Stärke", shown.filter(p => !sel.has(p.id)).sort(byStrength))}
+    ${!shown.length ? `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>` : ""}
+  </section>
+  <section class="panel"><div class="row">
+    <button class="btn primary" data-act="h-build" ${n < 4 ? "disabled" : ""}>${h.teams ? "Neu mischen" : "Faire Teams erstellen"}</button>
+    ${n && n !== TGT ? `<span class="hint">${n < TGT ? `Für ${k} volle Teams fehlen ${TGT - n}.` : `${n - TGT} mehr als ${TGT}: Teams werden größer.`}</span>` : ""}
+  </div></section>`;
+  if (h.teams) {
+    const teams = h.teams.map(t => t.filter(id => state.players[id]));
+    const all = teams.flat();
+    const stale = all.length !== n || all.some(id => !sel.has(id));
+    const card = (t, i) => {
+      const [name, col, ink] = HALL_TEAMS[i], ps = t.map(P).filter(revealed);
+      const avg = ps.length ? ps.reduce((s, p) => s + ovr(p), 0) / ps.length : null;
+      const sorted = hallSort(t); let lastR = null;
+      const lis = sorted.map(id => { const r = hallRole(id), sep = lastR !== null && r !== lastR; lastR = r;
+        return `${sep ? `<li class="sep" aria-hidden="true"></li>` : ""}<li><button data-hswap="${id}" class="${state.hswap === id ? "sel" : ""}"><span class="k">${r || "–"}</span><span class="nm">${esc(P(id).name)}</span><span class="skill">${ovrText(P(id))}</span></button></li>`; }).join("");
+      return `<div class="hteam" style="--hc:${col};--hci:${ink}"><header><h3>${name}</h3><span>${t.length} · Ø ${avg === null ? "?" : f1(avg)}</span></header><ol>${lis}</ol></div>`;
+    };
+    html += `<section class="panel">
+      <h2>Teams</h2>
+      ${stale ? `<p class="chip warn" style="justify-self:start">Auswahl hat sich geändert. „Neu mischen“ drücken.</p>` : ""}
+      <div class="hgrid">${teams.map(card).join("")}</div>
+      <p class="hint" style="margin:0">Tausch von Hand: einen Spieler antippen, dann einen aus einem anderen Team. Die Stärkewerte kommen nicht in den WhatsApp-Text.</p>
+      <div class="row">
+        <button class="btn primary" data-act="h-copy">Für WhatsApp kopieren</button>
+        <button class="btn" data-act="h-img">Teams als Bild</button>
+        <button class="btn ghost" data-act="h-clear">${state.confirmHallClear ? "Wirklich verwerfen?" : "Teams verwerfen"}</button>
+      </div>
+      <textarea id="hwa" readonly hidden></textarea>
+    </section>`;
+  }
+  view.innerHTML = html;
+}
+function hallText() {
+  const h = state.hall;
+  return `⚽ Soccerhalle, ${fmtDate(h.date)}\n\n` + h.teams.map((t, i) => { const [name, , , em] = HALL_TEAMS[i];
+    return `${em} Team ${name}\n${hallSort(t.filter(id => P(id))).map(id => `• ${P(id).name}${hallRole(id) ? ` (${hallRole(id) === "DEF" ? "Def" : "Off"})` : ""}`).join("\n")}`; }).join("\n\n");
+}
+async function hallImage() {
+  try { await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 30px "Barlow"'); } catch (e) {}
+  const h = state.hall, teams = h.teams.map(t => hallSort(t.filter(id => P(id))));
+  const DISP = '"Barlow Condensed", "Arial Narrow", sans-serif', BODY = '"Barlow", system-ui, sans-serif';
+  const W = 1080, rows = Math.ceil(teams.length / 2), maxN = Math.max(5, ...teams.map(t => t.length));
+  const CH = 110 + maxN * 74 + 30, H = 230 + rows * (CH + 40) + 30;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
+  g.fillStyle = "#0f3d23"; g.fillRect(0, 0, W, H);
+  g.textAlign = "center"; g.fillStyle = "#f4f8f2"; g.font = `700 64px ${DISP}`; g.fillText("SCHNEPPENHAUSEN", W / 2, 92);
+  g.font = `600 34px ${BODY}`; g.fillStyle = "rgba(244,248,242,.8)"; g.fillText(`Soccerhalle · ${fmtDate(h.date)} · ${teams.length} Teams`, W / 2, 148);
+  const CW = (W - 60 * 2 - 40) / 2;
+  teams.forEach((t, i) => {
+    const [name, col, ink] = HALL_TEAMS[i], x = 60 + (i % 2) * (CW + 40), y = 200 + Math.floor(i / 2) * (CH + 40);
+    g.fillStyle = "#fff"; g.beginPath(); g.roundRect(x, y, CW, CH, 24); g.fill();
+    g.fillStyle = col; g.beginPath(); g.roundRect(x, y, CW, 96, [24, 24, 0, 0]); g.fill();
+    g.fillStyle = ink; g.textAlign = "left"; g.font = `700 52px ${DISP}`; g.fillText(name.toUpperCase(), x + 30, y + 66);
+    let lastR = null, yy = y + 96 + 62;
+    t.forEach(id => { const r = hallRole(id);
+      if (lastR !== null && r !== lastR) { g.strokeStyle = "#c9d3c9"; g.setLineDash([10, 8]); g.lineWidth = 2; g.beginPath(); g.moveTo(x + 24, yy - 46); g.lineTo(x + CW - 24, yy - 46); g.stroke(); g.setLineDash([]); }
+      lastR = r;
+      g.fillStyle = "#5a6a60"; g.font = `700 32px ${DISP}`; g.fillText(r || "–", x + 30, yy);
+      g.fillStyle = "#142019"; g.font = `600 36px ${BODY}`;
+      let nm = P(id).name; while (g.measureText(nm).width > CW - 130 && nm.length > 3) nm = nm.slice(0, -2) + "…";
+      g.fillText(nm, x + 100, yy); yy += 74; });
+  });
+  return await new Promise(res => cv.toBlob(res, "image/png"));
+}
+async function shareBlob(blob, filename) {
+  let dl = null;
+  try { dl = window.claude && typeof window.claude.use === "function" ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  if (dl) {
+    try { await dl.save({ filename, data: blob }); toast("Bild bereit zum Teilen"); return; }
+    catch (e) { if (e && e.code === "declined") { toast("Abgebrochen"); return; } }
+  }
+  const ov = document.getElementById("imgov"), img = document.getElementById("imgovpic");
+  if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+  img.dataset.url = URL.createObjectURL(blob); img.src = img.dataset.url;
+  ov.hidden = false;
 }
 
 function renderTeams() {
@@ -1932,10 +2127,26 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-format],[data-statf],[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-hallk],[data-hswap],[data-format],[data-statf],[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
+  if (t.dataset.hallk) {
+    if (+t.dataset.hallk !== hallK()) { state.hall.k = +t.dataset.hallk; state.hall.teams = null; state.hswap = null; saveHall(); }
+    return render();
+  }
+  if (t.dataset.hswap) {
+    const id = t.dataset.hswap, h = state.hall, ti = x => h.teams.findIndex(tm => tm.includes(x));
+    if (!state.hswap || state.hswap === id) state.hswap = state.hswap === id ? null : id;
+    else if (ti(state.hswap) === ti(id)) state.hswap = id;
+    else {
+      const s = state.hswap, a = ti(s), b = ti(id);
+      h.teams = h.teams.map((tm, i) => i === a ? tm.map(x => x === s ? id : x) : i === b ? tm.map(x => x === id ? s : x) : tm);
+      state.hswap = null; saveHall();
+      toast(`${P(s).name.split(" ")[0]} ⇄ ${P(id).name.split(" ")[0]}: Team getauscht`);
+    }
+    return render();
+  }
   if (t.dataset.release) {
     if (state.confirmRelease !== t.dataset.release) { state.confirmRelease = t.dataset.release; return render(); }
     state.confirmRelease = null; await releaseClaim(t.dataset.release); return;
@@ -2119,6 +2330,21 @@ view.addEventListener("click", async (e) => {
       break;
     }
     case "copy": copyText(waText(), document.getElementById("wa")); break;
+    case "h-none": state.hall.selected = []; state.hall.teams = null; state.hswap = null; saveHall(); render(); break;
+    case "h-build": {
+      const h = state.hall, ids = h.selected.filter(id => state.players[id]);
+      const fit = [2, 3, 4].find(m => m * 5 === ids.length);
+      if (fit && fit !== hallK()) { h.k = fit; toast(`${ids.length} Spieler: ${fit} Teams`); }
+      h.teams = buildHall(ids, hallK()); state.hswap = null; state.confirmHallClear = false; saveHall(); render();
+      document.querySelector(".hgrid")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      break;
+    }
+    case "h-copy": copyText(hallText(), document.getElementById("hwa")); break;
+    case "h-img": toast("Bild wird erstellt …"); await shareBlob(await hallImage(), `Halle-${state.hall.date || today()}.png`); break;
+    case "h-clear": {
+      if (!state.confirmHallClear) { state.confirmHallClear = true; return render(); }
+      state.confirmHallClear = false; state.hall.teams = null; state.hswap = null; saveHall(); render(); toast("Teams verworfen. Die Auswahl ist geblieben."); break;
+    }
     case "share-img": await shareLineupImage(); break;
     case "save-game": {
       const existing = Object.values(state.games).find(g => g.date === cur.date && (g.field || "big") === state.field);
@@ -2160,6 +2386,12 @@ view.addEventListener("change", async (e) => {
     if (t.checked) l.add(id); else l.delete(id);
     cur.late = [...l]; store.saveCurrent(); render(); return;
   }
+  if (t.dataset.hpick) {
+    const id = t.dataset.hpick, h = state.hall;
+    h.selected = t.checked ? [...new Set([...h.selected, id])] : h.selected.filter(x => x !== id);
+    saveHall(); render(); return;
+  }
+  if (t.id === "hdate") { state.hall.date = t.value || nextMonday(); saveHall(); return; }
   if (t.dataset.pick) {
     const id = t.dataset.pick;
     cur.selected = t.checked ? [...new Set([...cur.selected, id])] : cur.selected.filter(x => x !== id);
