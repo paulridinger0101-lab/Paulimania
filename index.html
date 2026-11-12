@@ -300,6 +300,7 @@ tr.click:hover td { background: var(--bg); }
 .psn { font-weight: 600; font-size: 14.5px; }
 .psm { font-size: 12.5px; color: var(--muted); }
 .psq { font-variant-numeric: tabular-nums; font-size: 14px; }
+.statseg { justify-self: start; }
 .linegrp { display: grid; gap: 4px; }
 .linelab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
 .need { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 2px 6px; border-radius: 99px; background: #ffe9a8; color: #6d4c00; flex: none; }
@@ -387,6 +388,7 @@ details summary { cursor: pointer; font-weight: 600; }
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="spieler" aria-selected="false">Spieler</button>
       <button role="tab" data-tab="spieltag" aria-selected="true">Spieltag</button>
+      <button role="tab" data-tab="kleinfeld" aria-selected="false">Kleinfeld</button>
       <button role="tab" data-tab="statistik" aria-selected="false">Statistik</button>
     </nav>
   </div>
@@ -714,7 +716,9 @@ const state = {
   tab: "spieltag",
   players: {},   // id -> {id, name, skill 1-10, pos, active, demo}
   games: {},     // id -> {id, date, a:[ids], b:[ids], scoreA, scoreB}
-  current: { date: nextMonday(), selected: [], a: null, b: null },
+  big: { date: nextMonday(), selected: [], a: null, b: null },
+  small: { date: nextMonday(), selected: [], a: null, b: null, format: 8 },
+  field: "big",   // "big" = Großfeld (Spieltag), "small" = Kleinfeld
   editing: null, // player id or "new"
   swapSel: null,
   filter: "",
@@ -728,6 +732,12 @@ const state = {
   userId: null,  // account id, only to move ratings saved by an earlier version
   isOwner: true,
 };
+
+// state.current is the matchday of the field shown right now (Großfeld or Kleinfeld)
+Object.defineProperty(state, "current", {
+  get() { return this.field === "small" ? this.small : this.big; },
+  set(v) { if (this.field === "small") this.small = v; else this.big = v; },
+});
 
 /* ---------- helpers ---------- */
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
@@ -744,8 +754,9 @@ function fmtDate(iso) {
   return d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric", year: "2-digit" });
 }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function sortedGames() { return Object.values(state.games).sort((x, y) => y.date.localeCompare(x.date)); }
-function lastGame() { return sortedGames()[0] || null; }
+// Großfeld and Kleinfeld are counted separately; only Großfeld decides the "Vorrecht".
+function sortedGames(field = "big") { return Object.values(state.games).filter(g => (g.field || "big") === field).sort((x, y) => y.date.localeCompare(x.date)); }
+function lastGame(field = "big") { return sortedGames(field)[0] || null; }
 // Alphabetical by surname (last word of the name), then by full name.
 function surname(p) { const parts = (p.name || "").trim().split(/\s+/); return parts[parts.length - 1] || ""; }
 function playerList() { return Object.values(state.players).sort((x, y) => surname(x).localeCompare(surname(y), "de", { sensitivity: "base" }) || x.name.localeCompare(y.name, "de")); }
@@ -761,10 +772,10 @@ let db = null;
 const store = {
   saveLocal() {
     const players = Object.fromEntries(Object.values(state.players).map(p => { const o = { ...p }; if ("sharedPos" in o) { o.pos = o.sharedPos; o.pos2 = o.sharedPos2; delete o.sharedPos; delete o.sharedPos2; delete o.posInfo; } return [p.id, o]; }));
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ players, games: state.games, current: state.current, ratings: state.ratings })); } catch (e) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ players, games: state.games, current: state.big, small: state.small, ratings: state.ratings })); } catch (e) {}
   },
   loadLocal() {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), current: Object.assign(state.current, d.current || {}) }); } } catch (e) {}
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) { const d = JSON.parse(raw); Object.assign(state, { players: normAll(d.players), games: d.games || {}, ratings: Object.fromEntries(Object.entries(d.ratings || {}).map(([k, v]) => [k, normRatingDoc(k, v)])), big: Object.assign(state.big, d.current || {}), small: Object.assign(state.small, d.small || {}) }); } } catch (e) {}
     computeAvg();
   },
   async putPlayer(p) {
@@ -826,15 +837,17 @@ const store = {
     }
   },
   // Matchday selection: local taps always win over older copies coming back from the store.
-  saveCurrent() { curSeq++; saveCurrentSoon(); },
+  saveCurrent() { const f = state.field; curSeqF[f]++; (f === "small" ? saveSmallSoon : saveCurrentSoon)(); },
 };
-let curSeq = 0, curSaved = 0;
-const saveCurrentSoon = debounce(async () => {
-  const seq = curSeq;
-  if (db) await dbWrite(db.doc("meta/current").set(JSON.parse(JSON.stringify(state.current))));
+// per field: local changes win over older copies coming back from the store
+const curSeqF = { big: 0, small: 0 }, curSavedF = { big: 0, small: 0 };
+const makeSaver = (f, path) => debounce(async () => {
+  const seq = curSeqF[f];
+  if (db) await dbWrite(db.doc(path).set(JSON.parse(JSON.stringify(state[f]))));
   else store.saveLocal();
-  curSaved = Math.max(curSaved, seq);
+  curSavedF[f] = Math.max(curSavedF[f], seq);
 }, 400);
+const saveCurrentSoon = makeSaver("big", "meta/current"), saveSmallSoon = makeSaver("small", "meta/small");
 async function dbWrite(p) {
   try { await p; } catch (e) { toast(e && e.code === "quota_exceeded" ? "Speicher voll: alte Spieltage löschen." : "Speichern fehlgeschlagen. Verbindung prüfen."); }
 }
@@ -851,7 +864,8 @@ async function refreshNow() {
       state.games = Object.fromEntries(gs.docs.map(x => [x.id, { ...x.data(), id: x.id }]));
       state.ratings = Object.fromEntries(rs.docs.map(x => [x.id, normRatingDoc(x.id, x.data())]));
       state.revoked = (orga.exists && (orga.data() || {}).revoked) || [];
-      if (cur.exists && curSeq === curSaved) state.current = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(cur.data())));
+      if (cur.exists && curSeqF.big === curSavedF.big) state.big = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(cur.data())));
+      try { const sm = await db.doc("meta/small").get(); if (sm.exists && curSeqF.small === curSavedF.small) state.small = Object.assign({ date: nextMonday(), selected: [], a: null, b: null, format: 8 }, JSON.parse(JSON.stringify(sm.data()))); } catch (e) {}
       refreshMe(); computeAvg();
     } catch (e) { toast("Aktualisieren hat nicht geklappt. Verbindung prüfen."); return false; }
   } else { store.loadLocal(); }
@@ -948,13 +962,21 @@ async function initDb() {
   }, () => done("games"));
   db.doc("meta/current").onSnapshot(s => {
     // ignore copies while this device still has unsaved or in-flight changes
-    if (s.exists && !s.metadata.hasPendingWrites && curSeq === curSaved) {
+    if (s.exists && !s.metadata.hasPendingWrites && curSeqF.big === curSavedF.big) {
       const next = Object.assign({ date: nextMonday(), selected: [], a: null, b: null }, JSON.parse(JSON.stringify(s.data())));
-      if (JSON.stringify(next) === JSON.stringify(state.current) && state.loaded) return;
-      state.current = next;
+      if (JSON.stringify(next) === JSON.stringify(state.big) && state.loaded) return;
+      state.big = next;
     }
     done("current");
   }, () => done("current"));
+  db.doc("meta/small").onSnapshot(s => {
+    if (s.exists && !s.metadata.hasPendingWrites && curSeqF.small === curSavedF.small) {
+      const next = Object.assign({ date: nextMonday(), selected: [], a: null, b: null, format: 8 }, JSON.parse(JSON.stringify(s.data())));
+      if (JSON.stringify(next) === JSON.stringify(state.small)) return;
+      state.small = next;
+      if (state.loaded) renderFromStore();
+    }
+  }, () => {});
 }
 
 // Drop my ratings of players that were deleted (only my own document is mine to change).
@@ -1017,14 +1039,34 @@ const NEED = FORMATION.reduce((o, [k]) => (o[k] = (o[k] || 0) + 1, o), {});
 const GROUPS = [["TW", ["TW"], "Torwart"], ["AV", ["LV", "RV"], "Außenverteidiger"], ["IV", ["IV"], "Innenverteidiger"],
   ["ZM", ["ZM"], "6er"], ["FL", ["LF", "RF"], "Flügel"], ["OF", ["ZOM", "ST"], "Stürmer / OM"]];
 // Position for this matchday: a change made in "Positionen prüfen", else the player's main position
-function playPos(id) { const a = state.current.assign || {}; return a[id] || (P(id) && P(id).pos) || ""; }
+function playPos(id) { const a = state.current.assign || {}; return a[id] || basePos(P(id)) || ""; }
 // Players who might come late this matchday: never two in the same team.
 function lateList() { const c = state.current; return (c.late || []).filter(id => (c.selected || []).includes(id) && P(id)); }
 function isLate(id) { return lateList().includes(id); }
 function buildSig() { return JSON.stringify({ a: state.current.assign || {}, l: lateList().slice().sort() }); }
 function fieldPos(id) { const f = state.current.fieldPos || {}; return f[id] || playPos(id); }
-function offMain(id, slot) { const p = P(id); return !!p && slot !== p.pos; }
-function groupOf(pos) { const g = GROUPS.find(g => g[1].includes(pos)); return g ? g[0] : "REST"; }
+function offMain(id, slot) { const p = P(id); return !!p && slot !== basePos(p); }
+const SMALL_POS = { TW: "TW", LV: "AB", IV: "AB", RV: "AB", ZM: "MF", ZOM: "MF", LF: "MF", RF: "MF", ST: "ST" };
+const SMALL_NAMES = { TW: "Torwart", AB: "Abwehr", MF: "Mittelfeld", ST: "Sturm" };
+LINE_OF.AB = "ABW"; LINE_OF.MF = "MIT";
+const SMALL_FORMATIONS = {
+  8: [["TW", .5, 0], ["AB", .18, .3], ["AB", .5, .27], ["AB", .82, .3], ["MF", .18, .62], ["MF", .5, .58], ["MF", .82, .62], ["ST", .5, .92]],
+  7: [["TW", .5, 0], ["AB", .18, .3], ["AB", .5, .27], ["AB", .82, .3], ["MF", .3, .62], ["MF", .7, .62], ["ST", .5, .92]],
+  6: [["TW", .5, 0], ["AB", .18, .32], ["AB", .5, .29], ["AB", .82, .32], ["MF", .3, .72], ["MF", .7, .72]],
+};
+const SMALL_SHAPE = { 8: "3-3-1", 7: "3-2-1", 6: "3-2" };
+function isSmall() { return state.field === "small"; }
+function smallFormat() { const f = +state.small.format; return SMALL_FORMATIONS[f] ? f : 8; }
+function basePos(p) { if (!p) return ""; return isSmall() ? (SMALL_POS[p.pos] || "") : (p.pos || ""); }
+function altPos(p) { const a = altOf(p); if (!isSmall()) return a; const b = basePos(p); return [...new Set(a.map(x => SMALL_POS[x]).filter(x => x && x !== b))]; }
+function curFormation() { return isSmall() ? SMALL_FORMATIONS[smallFormat()] : FORMATION; }
+function curNeed() { return curFormation().reduce((o, [k]) => (o[k] = (o[k] || 0) + 1, o), {}); }
+function curPosOrder() { return isSmall() ? ["TW", "AB", "MF", "ST"] : POS_ORDER; }
+function curGroups() { return isSmall() ? [["TW", ["TW"], "Torwart"], ["AB", ["AB"], "Abwehr"], ["MF", ["MF"], "Mittelfeld"], ["ST", ["ST"], "Sturm"]] : GROUPS; }
+function curShape() { return isSmall() ? `${smallFormat()} gg. ${smallFormat()} · ${SMALL_SHAPE[smallFormat()]}` : "4-2-3-1"; }
+function target() { return isSmall() ? smallFormat() * 2 : TARGET; }
+function posLabel(k) { return k === "ZM" && !isSmall() ? "6er" : k; }
+function groupOf(pos) { const g = curGroups().find(g => g[1].includes(pos)); return g ? g[0] : "REST"; }
 
 // Teams: in every group the players are paired best with weakest, second best with second weakest, ...
 // Each pair stays together; the pairs are split over both teams so that both are as strong as possible.
@@ -1058,12 +1100,12 @@ function buildTeams(ids) {
     c += Math.abs(A.filter(id => late.has(id)).length - B.filter(id => late.has(id)).length) * 120;
     const sum = t => t.reduce((s, id) => s + val[id], 0);
     c += Math.abs(sum(A) - sum(B)) * 3;
-    for (const [g] of [...GROUPS, ["REST"]]) {
+    for (const [g] of [...curGroups(), ["REST"]]) {
       const ca = A.filter(id => groupOf(playPos(id)) === g).length, cb = B.filter(id => groupOf(playPos(id)) === g).length;
       c += Math.abs(ca - cb) * (g === "TW" ? 60 : 15);
     }
     // and each exact position (one LV and one RV per team, etc.)
-    for (const pos of ["LV", "RV", "LF", "RF", "ZOM", "ST"]) {
+    for (const pos of isSmall() ? [] : ["LV", "RV", "LF", "RF", "ZOM", "ST"]) {
       const ca = A.filter(id => playPos(id) === pos).length, cb = B.filter(id => playPos(id) === pos).length;
       c += Math.abs(ca - cb) * 8;
     }
@@ -1085,14 +1127,20 @@ function buildTeams(ids) {
     const u = units[k];
     if (u.ids.length === 2 && u.ids.every(id => late.has(id))) { units.splice(k, 1); units.push({ g: u.g, ids: [u.ids[0]] }, { g: u.g, ids: [u.ids[1]] }); }
   }
-  const ok = r => Math.abs(r.A.length - r.B.length) <= 1
+  const groupOk = r => curGroups().every(([g]) => {
+    const ca = r.A.filter(id => groupOf(playPos(id)) === g).length, cb = r.B.filter(id => groupOf(playPos(id)) === g).length;
+    return Math.abs(ca - cb) <= (ca + cb) % 2;
+  });
+  const ok = r => groupOk(r) && Math.abs(r.A.length - r.B.length) <= 1
     && Math.abs(r.A.filter(id => late.has(id)).length - r.B.filter(id => late.has(id)).length) <= late.size % 2
     && Math.abs(r.A.filter(id => playPos(id) === "TW").length - r.B.filter(id => playPos(id) === "TW").length) <= nTW % 2;
   let results = solve();
   // Pairs can't always add up to equal teams with one keeper each: then split pairs (unsorted group first).
   for (let tries = 0; tries < 6 && !ok(results[0]); tries++) {
-    const order = ["REST", "OF", "FL", "AV", "ZM", "IV"];
+    const order = ["REST", "OF", "FL", "AV", "ZM", "IV", "ST", "MF", "AB"];
+    const bad = curGroups().map(([g]) => g).find(g => { const r = results[0]; const ca = r.A.filter(id => groupOf(playPos(id)) === g).length, cb = r.B.filter(id => groupOf(playPos(id)) === g).length; return Math.abs(ca - cb) > (ca + cb) % 2; });
     let k = units.findIndex(u => u.ids.length === 2 && u.ids.some(id => late.has(id)));
+    if (k < 0 && bad) k = units.findIndex(u => u.ids.length === 2 && u.g === bad);
     if (k < 0) k = units.findIndex(u => u.ids.length === 2 && u.g === order.find(g => units.some(x => x.g === g && x.ids.length === 2)));
     if (k < 0) break;
     const [u] = units.splice(k, 1); units.push({ g: u.g, ids: [u.ids[0]] }, { g: u.g, ids: [u.ids[1]] });
@@ -1105,10 +1153,10 @@ function buildTeams(ids) {
 
 // Place a team into the 4-2-3-1: own position first, then secondary positions, then the same line.
 function lineupOf(t) {
-  const left = t.slice(), out = FORMATION.map(([k, x, y]) => ({ k, x, y, id: null }));
+  const left = t.slice(), out = curFormation().map(([k, x, y]) => ({ k, x, y, id: null }));
   const take = (slot, ok) => { const i = left.findIndex(ok); if (i >= 0) { slot.id = left[i]; left.splice(i, 1); } };
   for (const sl of out) take(sl, id => fieldPos(id) === sl.k);
-  for (const sl of out) if (!sl.id) take(sl, id => altOf(P(id)).includes(sl.k));
+  for (const sl of out) if (!sl.id) take(sl, id => altPos(P(id)).includes(sl.k));
   for (const sl of out) if (!sl.id) take(sl, id => LINE_OF[fieldPos(id)] === LINE_OF[sl.k] && sl.k !== "TW");
   for (const sl of out) if (!sl.id && sl.k !== "TW") take(sl, () => true);
   for (const sl of out) if (!sl.id) take(sl, () => true);
@@ -1129,7 +1177,7 @@ function lineupPitch(a, b) {
   const offAny = [...W.slots, ...S.slots].some(sl => sl.id && offMain(sl.id, sl.k));
   const selP = state.swapSel && P(state.swapSel);
   const banner = selP ? `<div class="swapbanner"><b>${esc(short(selP.name))} ausgewählt.</b> Tippe einen zweiten Spieler an: gleiches Team = <b>Positionen tauschen</b> · anderes Team = <b>Team tauschen</b>. Nochmal antippen hebt die Auswahl auf.</div>` : `<p class="hint" style="margin:0">Tipp auf zwei Spieler zum Tauschen: gleiches Team tauscht die Positionen, verschiedene Teams tauschen das Team.</p>`;
-  return `<div class="pitchwrap">${banner}<div class="teamtag s"><span class="tdot s"></span>Team Schwarz</div><div class="pitch" role="img" aria-label="Aufstellung 4-2-3-1: Team Weiß unten, Team Schwarz oben">
+  return `<div class="pitchwrap">${banner}<div class="teamtag s"><span class="tdot s"></span>Team Schwarz</div><div class="pitch" role="img" aria-label="Aufstellung ${curShape()}: Team Weiß unten, Team Schwarz oben">
     <svg viewBox="0 0 100 180" aria-hidden="true"><g fill="none" stroke="rgba(255,255,255,.6)" stroke-width=".6">
       <rect x="3" y="3" width="94" height="174"/><line x1="3" y1="90" x2="97" y2="90"/><circle cx="50" cy="90" r="10"/>
       <rect x="22" y="3" width="56" height="20"/><rect x="36" y="3" width="28" height="8"/>
@@ -1141,7 +1189,7 @@ function lineupPitch(a, b) {
   ${bench.length ? `<p class="hint" style="margin:0">Ohne Platz in der Aufstellung: ${bench.join(", ")}</p>` : ""}</div>`;
 }
 function distributionPanel(a, b) {
-  const rows = GROUPS.map(([g, , label]) => {
+  const rows = curGroups().map(([g, , label]) => {
     const pa = a.filter(id => groupOf(playPos(id)) === g), pb = b.filter(id => groupOf(playPos(id)) === g);
     if (!pa.length && !pb.length) return "";
     const fmt = t => t.slice().sort((x, y) => ovr(P(y)) - ovr(P(x))).map(id => `${esc(P(id).name.split(" ")[0])} ${ovrText(P(id))}`).join(" + ") || "–";
@@ -1165,7 +1213,7 @@ async function lineupImage(a, b, date) {
   g.fillStyle = "#f4f8f2"; g.textAlign = "center"; g.textBaseline = "alphabetic";
   g.font = `700 64px ${DISP}`; g.fillText("SCHNEPPENHAUSEN", W / 2, 92);
   g.font = `600 34px ${BODY}`; g.fillStyle = "rgba(244,248,242,.8)";
-  g.fillText(`Montagskick · ${fmtDate(date)} · 4-2-3-1`, W / 2, 142);
+  g.fillText(`${isSmall() ? "Kleinfeld" : "Montagskick"} · ${fmtDate(date)} · ${curShape()}`, W / 2, 142);
   // pitch with stripes
   const stripes = 12;
   for (let i = 0; i < stripes; i++) { g.fillStyle = i % 2 ? "#277443" : "#2a7d47"; g.fillRect(PX, PY + i * PH / stripes, PW, PH / stripes + 1); }
@@ -1240,13 +1288,13 @@ async function shareLineupImage() {
 function positionCheck(ids) {
   const c = {}; let unknown = [];
   for (const id of ids) { const pp = playPos(id); if (pp) c[pp] = (c[pp] || 0) + 1; else unknown.push(id); }
-  const need = Object.fromEntries(Object.entries(NEED).map(([k, v]) => [k, v * 2]));
+  const need = Object.fromEntries(Object.entries(curNeed()).map(([k, v]) => [k, v * 2]));
   const surplus = {}, deficit = {};
-  for (const k of POS_ORDER) { const d = (c[k] || 0) - (need[k] || 0); if (d > 0) surplus[k] = d; if (d < 0) deficit[k] = -d; }
+  for (const k of curPosOrder()) { const d = (c[k] || 0) - (need[k] || 0); if (d > 0) surplus[k] = d; if (d < 0) deficit[k] = -d; }
   const used = new Set(), sugg = [];
-  for (const D of POS_ORDER) for (let n = 0; n < (deficit[D] || 0); n++) {
+  for (const D of curPosOrder()) for (let n = 0; n < (deficit[D] || 0); n++) {
     const cands = ids.filter(id => !used.has(id)).map(id => {
-      const from = playPos(id), alt = altOf(P(id));
+      const from = playPos(id), alt = altPos(P(id));
       let score = -1;
       if (!from) score = 2;
       else if (surplus[from] > 0 && alt.includes(D)) score = 3;
@@ -1262,17 +1310,13 @@ function positionCheck(ids) {
 function positionPanel(ids) {
   const r = positionCheck(ids);
   const assign = state.current.assign || {};
-  const cell = k => { const have = r.c[k] || 0, need = r.need[k]; const cls = have > need ? "over" : have < need ? "under" : ""; return `<div class="fslot"><span class="fk">${k === "ZM" ? "6er" : k}</span><span class="fc ${cls}">${have}/${need}</span></div>`; };
+  const cell = k => { const have = r.c[k] || 0, need = r.need[k] || 0; const cls = have > need ? "over" : have < need ? "under" : ""; return `<div class="fslot"><span class="fk">${posLabel(k)}</span><span class="fc ${cls}">${have}/${need}</span></div>`; };
   const changed = Object.entries(assign).filter(([id]) => ids.includes(id) && P(id));
   return `<section class="panel">
     <div class="row spread"><h2>Positionen prüfen</h2><span class="chip ${r.conflicts ? "warn" : ""}">${r.conflicts ? `${r.conflicts} Konflikt${r.conflicts === 1 ? "" : "e"}` : "passt"}</span></div>
-    <p class="hint" style="margin:0">Für zwei Teams im 4-2-3-1. Pro Position: abgehakt / gebraucht.</p>
-    <div class="fmap">
-      <div class="fline">${cell("ST")}</div>
-      <div class="fline">${cell("LF")}${cell("ZOM")}${cell("RF")}</div>
-      <div class="fline">${cell("ZM")}</div>
-      <div class="fline">${cell("LV")}${cell("IV")}${cell("RV")}</div>
-      <div class="fline">${cell("TW")}</div>
+    <p class="hint" style="margin:0">Für zwei Teams im ${curShape()}. Pro Position: abgehakt / gebraucht.</p>
+    <div class="fmap">${(isSmall() ? [["ST"], ["MF"], ["AB"], ["TW"]].filter(l => r.need[l[0]] || r.c[l[0]]) : [["ST"], ["LF", "ZOM", "RF"], ["ZM"], ["LV", "IV", "RV"], ["TW"]])
+      .map(l => `<div class="fline">${l.map(cell).join("")}</div>`).join("")}
     </div>
     <div class="row small"><span><span class="fc over">6/4</span> zu viele</span><span><span class="fc under">1/2</span> fehlt</span>
       ${r.unknown.length ? `<span class="chip plain">${r.unknown.length} ohne Position</span>` : ""}</div>
@@ -1282,7 +1326,7 @@ function positionPanel(ids) {
         <button class="btn small-btn" data-assign="${x.id}" data-to="${x.to}">Ja</button></div>`).join("")}</div>
       ${r.sugg.length > 1 ? `<div><button class="btn small-btn" data-act="assign-all">Alle Vorschläge übernehmen</button></div>` : ""}` : ""}
     ${changed.length ? `<b class="small">Umgestellt für diesen Spieltag</b>
-      <div class="row small">${changed.map(([id, to]) => `<span class="chip plain">${esc(P(id).name)}: ${to} (statt ${P(id).pos || "–"}) <button class="xbtn" data-unassign="${id}" aria-label="Zurücksetzen">✕</button></span>`).join("")}</div>` : ""}
+      <div class="row small">${changed.map(([id, to]) => `<span class="chip plain">${esc(P(id).name)}: ${to} (statt ${basePos(P(id)) || "–"}) <button class="xbtn" data-unassign="${id}" aria-label="Zurücksetzen">✕</button></span>`).join("")}</div>` : ""}
     <p class="hint" style="margin:0">Umstellungen gelten nur für diesen Spieltag und ändern nicht die Positionen der Spieler.</p>
   </section>`;
 }
@@ -1325,8 +1369,8 @@ function sortTeam(t) {
 }
 
 /* ---------- attendance stats ---------- */
-function playerStats() {
-  const games = sortedGames();
+function playerStats(field = "big") {
+  const games = sortedGames(field);
   const recent = games.slice(0, 8);
   const res = {};
   for (const p of Object.values(state.players)) res[p.id] = { total: 0, recent: recent.map(() => false), last: null, w: 0, d: 0, l: 0 };
@@ -1398,7 +1442,8 @@ function render() {
   }
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
   if (state.mode === "db" && !state.loaded) { view.innerHTML = `<div class="panel empty"><p class="muted">Spieler werden geladen …</p></div>`; return; }
-  if (state.tab === "spieltag") renderMatchday();
+  state.field = state.tab === "kleinfeld" ? "small" : state.tab === "spieltag" ? "big" : state.field;
+  if (state.tab === "spieltag" || state.tab === "kleinfeld") renderMatchday();
   else if (state.tab === "spieler") renderPlayers();
   else renderStats();
 }
@@ -1424,31 +1469,32 @@ function renderMatchday() {
   const paused = Object.values(state.players).length - players.length;
   const cur = state.current;
   const sel = new Set(cur.selected.filter(id => state.players[id]));
-  const lg = lastGame();
-  const n = sel.size;
+  const lg = lastGame(state.field);
+  const n = sel.size, TGT = target();
   const q = state.filter.trim().toLowerCase();
   const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
   const lgIds = lg ? new Set([...lg.a, ...lg.b]) : new Set();
   // ticked players first, strongest on top (players whose numbers are still hidden come last)
   const byStrength = (x, y) => (revealed(y) - revealed(x)) || (revealed(x) ? ovr(y) - ovr(x) : 0) || x.name.localeCompare(y.name, "de");
   // live count of main positions among ticked players (2 teams, 4-2-3-1)
-  const have = {}; for (const id of sel) { const pp = P(id) && P(id).pos; if (pp) have[pp] = (have[pp] || 0) + 1; }
-  const need2 = k => (NEED[k] || 0) * 2;
+  const have = {}; for (const id of sel) { const pp = basePos(P(id)); if (pp) have[pp] = (have[pp] || 0) + 1; }
+  const NEEDC = curNeed(), need2 = k => (NEEDC[k] || 0) * 2;
   const wanted = k => k && (have[k] || 0) < need2(k);
-  const pf = state.posFilter && POS[state.posFilter] ? state.posFilter : null;
-  const strip = `<div class="pstrip" role="group" aria-label="Hauptpositionen der abgehakten Spieler">${["TW", "LV", "IV", "RV", "ZM", "LF", "ZOM", "RF", "ST"].map(k => {
+  const stripKeys = isSmall() ? ["TW", "AB", "MF", "ST"].filter(k => NEEDC[k] || have[k]) : ["TW", "LV", "IV", "RV", "ZM", "LF", "ZOM", "RF", "ST"];
+  const pf = state.posFilter && stripKeys.includes(state.posFilter) ? state.posFilter : null;
+  const strip = `<div class="pstrip" style="grid-template-columns:repeat(${stripKeys.length}, minmax(0, 1fr))" role="group" aria-label="Hauptpositionen der abgehakten Spieler">${stripKeys.map(k => {
     const h = have[k] || 0, nd = need2(k), cls = h === nd ? "ok" : h > nd ? "over" : h === 0 ? "zero" : "miss";
-    return `<button class="pcell ${cls}${pf === k ? " sel" : ""}" data-pf="${k}" aria-pressed="${pf === k}"><span class="k">${k === "ZM" ? "6er" : k}</span><span class="v">${h}/${nd}</span></button>`;
+    return `<button class="pcell ${cls}${pf === k ? " sel" : ""}" data-pf="${k}" aria-pressed="${pf === k}"><span class="k">${isSmall() ? SMALL_NAMES[k] : posLabel(k)}</span><span class="v">${h}/${nd}</span></button>`;
   }).join("")}</div><p class="taphint">Tippe auf eine Position, um passende Spieler zu zeigen</p>`;
   const groups = pf ? [
-    [`Hauptposition ${pf === "ZM" ? "6er (ZM)" : pf}, nach Stärke`, shown.filter(p => p.pos === pf).sort(byStrength)],
-    [`Können auch ${pf === "ZM" ? "6er (ZM)" : pf} (Nebenposition)`, shown.filter(p => p.pos !== pf && altOf(p).includes(pf)).sort(byStrength)],
+    [`${isSmall() ? SMALL_NAMES[pf] : `Hauptposition ${pf === "ZM" ? "6er (ZM)" : pf}`}, nach Stärke`, shown.filter(p => basePos(p) === pf).sort(byStrength)],
+    [`Können auch ${isSmall() ? SMALL_NAMES[pf] : pf === "ZM" ? "6er (ZM)" : pf} (Nebenposition)`, shown.filter(p => basePos(p) !== pf && altPos(p).includes(pf)).sort(byStrength)],
   ] : [
     [`Dabei (${n}), nach Stärke sortiert`, shown.filter(p => sel.has(p.id)).sort(byStrength)],
-    ["Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id)).sort(byStrength)],
+    [isSmall() ? "Beim letzten Kleinfeld dabei, nach Stärke" : "Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id)).sort(byStrength)],
     [`${lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler")}, nach Stärke`, shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id)).sort(byStrength)],
   ].filter(g => g[1].length || pf);
-  const pct = Math.min(100, (n / TARGET) * 100);
+  const pct = Math.min(100, (n / TGT) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
   const gk2 = [...sel].filter(id => altOf(P(id)).includes("TW")).length;
 
@@ -1456,30 +1502,31 @@ function renderMatchday() {
   <section class="panel">
     <div class="row spread">
       <div style="display:grid;gap:4px">
-        <h2>Spieltag</h2>
-        ${intro(`Hake an, wer diese Woche dabei ist. Hier stehen automatisch alle Spieler aus „Spieler“${paused ? `, außer ${paused} pausierte${paused === 1 ? "m" : "n"}` : ""}.`)}
+        <h2>${isSmall() ? "Kleinfeld" : "Spieltag"}</h2>
+        ${isSmall() ? `<div class="seg" role="group" aria-label="Format">${[6, 7, 8].map(f => `<button data-format="${f}" aria-pressed="${smallFormat() === f}">${f} gg. ${f} · ${SMALL_SHAPE[f]}</button>`).join("")}</div>` : ""}
+        ${intro(`Hake an, wer ${isSmall() ? "beim Kleinfeld" : "diese Woche"} dabei ist. Hier stehen automatisch alle Spieler aus „Spieler“${paused ? `, außer ${paused} pausierte${paused === 1 ? "m" : "n"}` : ""}.`)}
         <div class="row small"><label for="gdate" class="muted">Datum</label><input type="date" id="gdate" value="${esc(cur.date)}"></div>
       </div>
       <div style="display:grid;gap:6px;min-width:150px">
-        <div class="counter"><b>${n}</b><span>/ ${TARGET} dabei</span></div>
-        <div class="meter ${n > TARGET ? "over" : ""}"><i style="width:${pct}%"></i></div>
+        <div class="counter"><b>${n}</b><span>/ ${TGT} dabei</span></div>
+        <div class="meter ${n > TGT ? "over" : ""}"><i style="width:${pct}%"></i></div>
       </div>
     </div>
     <div class="row small">
-      ${n > TARGET ? `<span class="chip warn">${n - TARGET} zu viel</span>` : n < TARGET ? `<span class="chip plain">${TARGET - n} Plätze frei</span>` : `<span class="chip">Voll</span>`}
+      ${n > TGT ? `<span class="chip warn">${n - TGT} zu viel</span>` : n < TGT ? `<span class="chip plain">${TGT - n} Plätze frei</span>` : `<span class="chip">Voll</span>`}
       <span class="chip ${gk < 2 ? "warn" : ""}">${gk} Torwart${gk === 1 ? "" : "e"}</span>${gk2 ? `<span class="chip plain">${gk2} kann notfalls ins Tor</span>` : ""}
     </div>
     <div class="filters">
       <input type="text" id="filter" placeholder="Spieler suchen" value="${esc(state.filter)}" style="flex:1;min-width:160px">
-      ${lg ? `<button class="btn" data-act="sel-last">Alle von letzter Woche</button>` : ""}
+      ${lg ? `<button class="btn" data-act="sel-last">${isSmall() ? "Alle vom letzten Kleinfeld" : "Alle von letzter Woche"}</button>` : ""}
       <button class="btn ghost" data-act="sel-none">Auswahl leeren</button>
     </div>`;
   if (pf) { const left = Math.max(0, need2(pf) - (have[pf] || 0));
     html += `<div class="fbar"><span><b>Filter: ${pf === "ZM" ? "6er" : pf}</b> · ${left ? `noch ${left} gesucht` : "voll"}</span><button class="btn small-btn" data-act="pf-clear">✕ Alle zeigen</button></div>`; }
   const pickRow = p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
-        ${posHtml(p)}<span class="nm">${esc(p.name)}${pf && sel.has(p.id) ? ` <span class="muted small">(schon dabei)</span>` : ""}</span>
-        ${!pf && !sel.has(p.id) && wanted(p.pos) ? `<span class="need">gesucht</span>` : ""}<span class="skill">${ovrText(p)}</span>
+        ${isSmall() ? `<span class="pos">${basePos(p) || "–"}</span>` : posHtml(p)}<span class="nm">${esc(p.name)}${pf && sel.has(p.id) ? ` <span class="muted small">(schon dabei)</span>` : ""}</span>
+        ${!pf && !sel.has(p.id) && wanted(basePos(p)) ? `<span class="need">gesucht</span>` : ""}<span class="skill">${ovrText(p)}</span>
       </label>`;
   // without a filter: split each group into Torwart, Abwehr, Mittelfeld, Sturm (each sorted by strength)
   const LINE_LABEL = { TW: "Torwart", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm", "": "Ohne Position" };
@@ -1487,14 +1534,14 @@ function renderMatchday() {
     let body;
     if (pf) body = `<div class="plist">${list.map(pickRow).join("") || `<p class="muted small" style="margin:0">Niemand.</p>`}</div>`;
     else body = ["TW", "ABW", "MIT", "STU", ""].map(l => {
-      const part = list.filter(p => (LINE_OF[p.pos] || "") === l);
+      const part = list.filter(p => (LINE_OF[basePos(p)] || "") === l);
       return part.length ? `<div class="linegrp"><span class="linelab">${LINE_LABEL[l]} · ${part.length}</span><div class="plist">${part.map(pickRow).join("")}</div></div>` : "";
     }).join("");
     html += `<div style="display:grid;gap:8px"><h3 class="muted">${title}</h3>${body}</div>`;
   }
   if (!shown.length) html += `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>`;
   html += `</section>`;
-  if (n >= 11) html += positionPanel([...sel]);
+  if (n >= (isSmall() ? smallFormat() : 11)) html += positionPanel([...sel]);
   const lateN = lateList().length;
   html += `<section class="panel"><div class="row"><button class="btn primary" data-act="build" ${n < 2 ? "disabled" : ""}>${cur.a ? "Neu mischen" : "Faire Teams erstellen"}</button>
     <button class="btn latebtn ${lateN ? "on" : ""}" data-act="late-toggle" ${n < 2 ? "disabled" : ""} aria-expanded="${!!state.lateOpen}">⏰ Zu spät${lateN ? ` (${lateN})` : ""}</button>
@@ -1730,9 +1777,11 @@ function renderBackup() {
 
 function renderStats() {
   const players = playerList();
-  const games = sortedGames().slice().reverse(); // oldest first, new matchdays are added below
+  const sf = state.statField === "small" ? "small" : "big";
+  const fieldSwitch = `<div class="seg statseg" role="group" aria-label="Statistik für"><button data-statf="big" aria-pressed="${sf === "big"}">Großfeld</button><button data-statf="small" aria-pressed="${sf === "small"}">Kleinfeld</button></div>`;
+  const games = sortedGames(sf).slice().reverse(); // oldest first, new matchdays are added below
   if (!games.length) {
-    view.innerHTML = `<div class="panel empty"><h2>Noch keine Statistik</h2>
+    view.innerHTML = `${fieldSwitch}<div class="panel empty"><h2>Noch keine ${sf === "small" ? "Kleinfeld-" : ""}Statistik</h2>
       <p class="muted" style="max-width:46ch">Sobald du unter „Spieltag“ Teams erstellt und auf „Spieltag speichern“ gedrückt hast, siehst du hier die Saison, alle Ergebnisse und wer wie oft dabei war.</p>
       <button class="btn primary" data-act="goto-matchday">Zum Spieltag</button></div>`;
     return;
@@ -1744,7 +1793,7 @@ function renderStats() {
   const pct = v => played.length ? (v / played.length * 100).toFixed(1) : 0;
 
   // ---- season summary
-  let html = `<section class="panel"><h2>Saison</h2>
+  let html = `${fieldSwitch}<section class="panel"><h2>Saison${sf === "small" ? " · Kleinfeld" : ""}</h2>
     <div class="tiles"><div class="tile"><b>${games.length}</b><span>Spieltag${games.length === 1 ? "" : "e"}</span></div>
       <div class="tile"><b>${played.length ? goals : "–"}</b><span>Tore</span></div>
       <div class="tile"><b>${played.length ? f1(goals / played.length) : "–"}</b><span>Tore/Spiel</span></div></div>
@@ -1765,7 +1814,7 @@ function renderStats() {
       : `<button class="scnum todo" data-editscore="${g.id}">Ergebnis<br>eintragen</button>`;
     const names = ids => ids.map(id => esc(P(id)?.name || "gelöschter Spieler")).join(", ");
     return `<div class="mc ${done ? "" : "open"}">
-      <div class="mchd"><span>Spieltag ${i + 1} · ${fmtDate(g.date)}</span><span>${g.a.length + g.b.length} Spieler</span></div>
+      <div class="mchd"><span>${sf === "small" ? "Kleinfeld" : "Spieltag"} ${i + 1} · ${fmtDate(g.date)}</span><span>${sf === "small" && g.format ? `${g.format} gg. ${g.format}` : `${g.a.length + g.b.length} Spieler`}</span></div>
       <div class="mcsb"><div class="mctm w"><span class="tdot w"></span>Weiß</div>${centre}<div class="mctm s">Schwarz<span class="tdot s"></span></div></div>
       ${edit ? `<div class="mcft"><span class="hint">Tore Weiß : Tore Schwarz</span><span class="row"><button class="btn small-btn ghost" data-act="cancel-score">Abbrechen</button><button class="btn small-btn primary" data-savescore="${g.id}">Speichern</button></span></div>`
         : `<div class="mcft"><span>${res}</span><button class="linkbtn" data-opengame="${g.id}" aria-expanded="${open}">Aufstellung ${open ? "▴" : "›"}</button></div>`}
@@ -1775,8 +1824,8 @@ function renderStats() {
   }).join("")}</section>`;
 
   // ---- players as a ranking
-  const stats = playerStats();
-  const lg = lastGame();
+  const stats = playerStats(sf);
+  const lg = lastGame(sf);
   const order = players.slice().sort((x, y) => stats[y.id].total - stats[x.id].total || x.name.localeCompare(y.name, "de"));
   html += `<section class="panel"><h2>Wer war wie oft dabei?</h2>
     <div class="ps">${order.map((p, i) => { const st = stats[p.id]; const s = statusOf(p, st, lg); const q = Math.round(st.total / games.length * 100); return `
@@ -1869,7 +1918,7 @@ async function deletePlayer(id) {
 function waText() {
   const c = state.current;
   const line = id => { const p = P(id); return p ? `• ${p.name} (${fieldPos(id) || "–"})${isLate(id) ? " ⏰" : ""}` : ""; };
-  return `⚽ Montagskick, ${fmtDate(c.date)}\n\n⚪ Team Weiß (${c.a.length})\n${sortTeam(c.a).map(line).join("\n")}\n\n⚫ Team Schwarz (${c.b.length})\n${sortTeam(c.b).map(line).join("\n")}`;
+  return `⚽ ${isSmall() ? `Kleinfeld (${smallFormat()} gg. ${smallFormat()})` : "Montagskick"}, ${fmtDate(c.date)}\n\n⚪ Team Weiß (${c.a.length})\n${sortTeam(c.a).map(line).join("\n")}\n\n⚫ Team Schwarz (${c.b.length})\n${sortTeam(c.b).map(line).join("\n")}`;
 }
 async function copyText(text, fallbackEl) {
   try { await navigator.clipboard.writeText(text); toast("Kopiert. Jetzt in WhatsApp einfügen."); }
@@ -1883,7 +1932,7 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-format],[data-statf],[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
@@ -1901,6 +1950,11 @@ view.addEventListener("click", async (e) => {
     if (a !== "") { g.scoreA = Math.max(0, Math.round(+a)); g.scoreB = Math.max(0, Math.round(+b)); } else { delete g.scoreA; delete g.scoreB; }
     state.editScore = null; await store.putGame(g); render(); toast(a !== "" ? "Ergebnis gespeichert" : "Ergebnis entfernt"); return;
   }
+  if (t.dataset.format) {
+    if (+t.dataset.format !== smallFormat()) { state.small.format = +t.dataset.format; state.small.a = null; state.small.b = null; state.small.fieldPos = {}; state.small.assign = {}; store.saveCurrent(); }
+    return render();
+  }
+  if (t.dataset.statf) { state.statField = t.dataset.statf; state.editScore = null; state.openGame = null; return render(); }
   if (t.dataset.pf) { state.posFilter = state.posFilter === t.dataset.pf ? null : t.dataset.pf; render(); document.querySelector(".fbar, .plist")?.scrollIntoView({ block: "nearest" }); return; }
   if (t.dataset.plf) { state.plFilter = t.dataset.plf; return render(); }
   if (t.dataset.swap) {
@@ -2041,7 +2095,7 @@ view.addEventListener("click", async (e) => {
       cur.selected = cur.selected.filter(id => state.players[id]); cur.a = null; cur.b = null; store.saveCurrent();
       toast("Beispielspieler entfernt"); render(); break;
     }
-    case "sel-last": { const lg = lastGame(); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
+    case "sel-last": { const lg = lastGame(state.field); if (lg) cur.selected = [...new Set([...cur.selected, ...lg.a, ...lg.b])].filter(id => state.players[id]); store.saveCurrent(); render(); break; }
     case "sel-none": cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; cur.fieldPos = {}; store.saveCurrent(); render(); break;
     case "pf-clear": state.posFilter = null; render(); break;
     case "cancel-score": state.editScore = null; render(); break;
@@ -2067,11 +2121,13 @@ view.addEventListener("click", async (e) => {
     case "copy": copyText(waText(), document.getElementById("wa")); break;
     case "share-img": await shareLineupImage(); break;
     case "save-game": {
-      const existing = Object.values(state.games).find(g => g.date === cur.date);
+      const existing = Object.values(state.games).find(g => g.date === cur.date && (g.field || "big") === state.field);
       const g = { id: existing ? existing.id : uid(), date: cur.date, a: cur.a.slice(), b: cur.b.slice() };
+      if (isSmall()) { g.field = "small"; g.format = smallFormat(); }
       if (existing && typeof existing.scoreA === "number") { g.scoreA = existing.scoreA; g.scoreB = existing.scoreB; }
       await store.putGame(g);
-      toast(existing ? "Spieltag aktualisiert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
+      toast(existing ? "Spieltag aktualisiert" : isSmall() ? "Kleinfeld-Spiel gespeichert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
+      state.statField = state.field;
       cur.date = nextMonday(new Date(new Date(cur.date + "T12:00:00").getTime() + 864e5).toISOString().slice(0, 10));
       cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; cur.fieldPos = {}; delete cur.builtAssign; store.saveCurrent();
       state.tab = "statistik"; render(); break;
