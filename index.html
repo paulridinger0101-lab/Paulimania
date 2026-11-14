@@ -1078,8 +1078,8 @@ function lateList() { const c = state.current; return (c.late || []).filter(id =
 function isLate(id) { return lateList().includes(id); }
 function buildSig() { return JSON.stringify({ a: state.current.assign || {}, l: lateList().slice().sort() }); }
 function fieldPos(id) { const f = state.current.fieldPos || {}; return f[id] || playPos(id); }
-// Großfeld: no "*" marker for players off their main position (the orga checks and swaps by hand)
-function offMain(id, slot) { if (!isSmall()) return false; const p = P(id); return !!p && slot !== basePos(p); }
+// No "*" marker for players off their main position (the orga checks and swaps by hand)
+function offMain() { return false; }
 const SMALL_POS = { TW: "TW", LV: "AB", IV: "AB", RV: "AB", ZM: "MF", ZOM: "MF", LF: "MF", RF: "MF", ST: "ST" };
 const SMALL_NAMES = { TW: "Torwart", AB: "Abwehr", MF: "Mittelfeld", ST: "Sturm" };
 LINE_OF.AB = "ABW"; LINE_OF.MF = "MIT";
