@@ -157,6 +157,20 @@ input[type="text"], input[type="date"], input[type="number"], select, textarea {
 .pick input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 .pick .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .pick.on { border-color: var(--accent); background: var(--accent-soft); }
+.pick.no { opacity: .55; }
+.pick.wanted .pos { background: #ffe9a8; color: #6d4c00; border-radius: 6px; padding: 1px 4px; }
+@media (max-width: 520px) { .pick { gap: 7px; padding: 8px 8px; } .pick .pos { min-width: 30px; } }
+.pick.no .nm { text-decoration: line-through; }
+.ask3 { display: flex; flex: none; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.ask3 button { border: 0; border-left: 1px solid var(--line); background: transparent; padding: 5px 7px; font: 700 12.5px var(--font-body, inherit); color: var(--muted); cursor: pointer; min-width: 26px; }
+.ask3 button:first-child { border-left: 0; }
+.ask3 button.a { background: #a86b00; color: #fff; }
+.ask3 button.y { background: var(--accent); color: #fff; }
+.ask3 button.n { background: #b3261e; color: #fff; }
+.asksum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.asksum span { border-radius: 8px; padding: 5px 2px; text-align: center; font-size: 12.5px; font-weight: 700; background: var(--bg); color: var(--muted); }
+.asksum span b { display: block; font-family: var(--font-display); font-size: 21px; line-height: 1.05; }
+.asksum .a { background: #fff6d6; color: #a86b00; } .asksum .y { background: var(--accent-soft); color: var(--accent); } .asksum .n { background: #fbe1de; color: #b3261e; }
 
 /* Teams */
 .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -1498,6 +1512,20 @@ function emptySquad(where) {
   </div>`;
 }
 
+/* ---------- asking players: ? = asked, Ja = dabei (ticked), Nein = declined ---------- */
+function askModel() { return state.tab === "halle" ? state.hall : state.current; }
+function askOf(m, id) { return (m.selected || []).includes(id) ? "y" : ((m.ask || {})[id] || ""); }
+function askBtns(m, id) {
+  const v = askOf(m, id);
+  return `<span class="ask3" role="group" aria-label="Abfrage">${[["a", "?", "Gefragt"], ["y", "Ja", "Zusage"], ["n", "Nein", "Absage"]].map(([k, t, l]) =>
+    `<button type="button" data-ask="${id}" data-v="${k}" class="${v === k ? k : ""}" aria-pressed="${v === k}" title="${l}">${t}</button>`).join("")}</span>`;
+}
+function askSummary(m, players) {
+  const c = { "": 0, a: 0, y: 0, n: 0 }; for (const p of players) c[askOf(m, p.id)]++;
+  return `<div class="asksum"><span><b>${c[""]}</b>offen</span><span class="a"><b>${c.a}</b>gefragt</span><span class="y"><b>${c.y}</b>Zusage</span><span class="n"><b>${c.n}</b>Absage</span></div>
+    ${c.a || c.n ? `<div><button class="btn small-btn ghost" data-act="ask-reset">${state.confirmAskReset ? "Wirklich alle auf „offen“?" : "Abfrage zurücksetzen"}</button></div>` : ""}`;
+}
+
 function renderMatchday() {
   const players = playerList().filter(p => p.active !== false);
   if (!Object.keys(state.players).length) { view.innerHTML = emptySquad("spieltag"); return; }
@@ -1520,14 +1548,15 @@ function renderMatchday() {
   const strip = `<div class="pstrip" style="grid-template-columns:repeat(${stripKeys.length}, minmax(0, 1fr))" role="group" aria-label="Hauptpositionen der abgehakten Spieler">${stripKeys.map(k => {
     const h = have[k] || 0, nd = need2(k), cls = h === nd ? "ok" : h > nd ? "over" : h === 0 ? "zero" : "miss";
     return `<button class="pcell ${cls}${pf === k ? " sel" : ""}" data-pf="${k}" aria-pressed="${pf === k}"><span class="k">${isSmall() ? SMALL_NAMES[k] : posLabel(k)}</span><span class="v">${h}/${nd}</span></button>`;
-  }).join("")}</div><p class="taphint">Tippe auf eine Position, um passende Spieler zu zeigen</p>`;
+  }).join("")}</div><p class="taphint">Tippe auf eine Position, um passende Spieler zu zeigen. Gelbe Position in der Liste = wird noch gesucht.</p>`;
   const groups = pf ? [
     [`${isSmall() ? SMALL_NAMES[pf] : `Hauptposition ${pf === "ZM" ? "6er (ZM)" : pf}`}, nach Stärke`, shown.filter(p => basePos(p) === pf).sort(byStrength)],
     [`Können auch ${isSmall() ? SMALL_NAMES[pf] : pf === "ZM" ? "6er (ZM)" : pf} (Nebenposition)`, shown.filter(p => basePos(p) !== pf && altPos(p).includes(pf)).sort(byStrength)],
   ] : [
     [`Dabei (${n}), nach Stärke sortiert`, shown.filter(p => sel.has(p.id)).sort(byStrength)],
-    [isSmall() ? "Beim letzten Kleinfeld dabei, nach Stärke" : "Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id)).sort(byStrength)],
-    [`${lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler")}, nach Stärke`, shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id)).sort(byStrength)],
+    [isSmall() ? "Beim letzten Kleinfeld dabei, nach Stärke" : "Vorrecht (letzte Woche dabei), nach Stärke", shown.filter(p => !sel.has(p.id) && lgIds.has(p.id) && askOf(cur, p.id) !== "n").sort(byStrength)],
+    [`${lg ? "Weitere Spieler" : (n ? "Noch nicht dabei" : "Alle Spieler")}, nach Stärke`, shown.filter(p => !sel.has(p.id) && !lgIds.has(p.id) && askOf(cur, p.id) !== "n").sort(byStrength)],
+    ["Abgesagt", shown.filter(p => askOf(cur, p.id) === "n").sort(byStrength)],
   ].filter(g => g[1].length || pf);
   const pct = Math.min(100, (n / TGT) * 100);
   const gk = [...sel].filter(id => P(id)?.pos === "TW").length;
@@ -1551,6 +1580,7 @@ function renderMatchday() {
       ${n > TGT ? `<span class="chip warn">${n - TGT} zu viel</span>` : n < TGT ? `<span class="chip plain">${TGT - n} Plätze frei</span>` : `<span class="chip">Voll</span>`}
       <span class="chip ${gk < 2 ? "warn" : ""}">${gk} Torwart${gk === 1 ? "" : "e"}</span>${gk2 ? `<span class="chip plain">${gk2} kann notfalls ins Tor</span>` : ""}
     </div>
+    ${askSummary(cur, players)}
     <div class="filters">
       <input type="text" id="filter" placeholder="Spieler suchen" value="${esc(state.filter)}" style="flex:1;min-width:160px">
       ${lg ? `<button class="btn" data-act="sel-last">${isSmall() ? "Alle vom letzten Kleinfeld" : "Alle von letzter Woche"}</button>` : ""}
@@ -1558,10 +1588,10 @@ function renderMatchday() {
     </div>`;
   if (pf) { const left = Math.max(0, need2(pf) - (have[pf] || 0));
     html += `<div class="fbar"><span><b>Filter: ${pf === "ZM" ? "6er" : pf}</b> · ${left ? `noch ${left} gesucht` : "voll"}</span><button class="btn small-btn" data-act="pf-clear">✕ Alle zeigen</button></div>`; }
-  const pickRow = p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
+  const pickRow = p => `<label class="pick ${sel.has(p.id) ? "on" : askOf(cur, p.id) === "n" ? "no" : ""}${!pf && !sel.has(p.id) && askOf(cur, p.id) !== "n" && wanted(basePos(p)) ? " wanted" : ""}" ${!pf && !sel.has(p.id) && wanted(basePos(p)) ? `title="Position wird noch gesucht"` : ""}>
         <input type="checkbox" data-pick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
         ${isSmall() ? `<span class="pos">${basePos(p) || "–"}</span>` : posHtml(p)}<span class="nm">${esc(p.name)}${pf && sel.has(p.id) ? ` <span class="muted small">(schon dabei)</span>` : ""}</span>
-        ${!pf && !sel.has(p.id) && wanted(basePos(p)) ? `<span class="need">gesucht</span>` : ""}<span class="skill">${ovrText(p)}</span>
+        <span class="skill">${ovrText(p)}</span>${askBtns(cur, p.id)}
       </label>`;
   // without a filter: split each group into Torwart, Abwehr, Mittelfeld, Sturm (each sorted by strength)
   const LINE_LABEL = { TW: "Torwart", ABW: "Abwehr", MIT: "Mittelfeld", STU: "Sturm", "": "Ohne Position" };
@@ -1643,9 +1673,9 @@ function renderHall() {
   const cls = (have, need) => have === need ? "ok" : have > need ? "over" : "miss";
   const q = state.filter.trim().toLowerCase();
   const shown = players.filter(p => !q || p.name.toLowerCase().includes(q));
-  const row = p => `<label class="pick ${sel.has(p.id) ? "on" : ""}">
+  const row = p => `<label class="pick ${sel.has(p.id) ? "on" : askOf(h, p.id) === "n" ? "no" : ""}">
       <input type="checkbox" data-hpick="${p.id}" ${sel.has(p.id) ? "checked" : ""}>
-      <span class="pos">${hallRole(p.id) || "–"}</span><span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span></label>`;
+      <span class="pos">${hallRole(p.id) || "–"}</span><span class="nm">${esc(p.name)}</span><span class="skill">${ovrText(p)}</span>${askBtns(h, p.id)}</label>`;
   const block = (title, list) => {
     if (!list.length) return "";
     const parts = [["DEF", "Defensiv"], ["OFF", "Offensiv"], ["", "Ohne Position"]].map(([r, lab]) => {
@@ -1669,12 +1699,14 @@ function renderHall() {
     </div>
     <div class="hstrip"><span class="${cls(dN, k * 3)}">Defensiv ${dN}/${k * 3}</span><span class="${cls(oN, k * 2)}">Offensiv ${oN}/${k * 2}</span></div>
     <p class="hint" style="margin:0">Defensiv: TW, LV, IV, RV, ZM · Offensiv: ZOM, LF, RF, ST (nach Hauptposition).</p>
+    ${askSummary(h, players)}
     <div class="filters">
       <input type="text" id="filter" placeholder="Spieler suchen" value="${esc(state.filter)}" style="flex:1;min-width:160px">
       <button class="btn ghost" data-act="h-none">Auswahl leeren</button>
     </div>
     ${block(`Dabei (${n}), nach Stärke`, shown.filter(p => sel.has(p.id)).sort(byStrength))}
-    ${block(n ? "Noch nicht dabei, nach Stärke" : "Alle Spieler, nach Stärke", shown.filter(p => !sel.has(p.id)).sort(byStrength))}
+    ${block(n ? "Noch nicht dabei, nach Stärke" : "Alle Spieler, nach Stärke", shown.filter(p => !sel.has(p.id) && askOf(h, p.id) !== "n").sort(byStrength))}
+    ${block("Abgesagt", shown.filter(p => askOf(h, p.id) === "n").sort(byStrength))}
     ${!shown.length ? `<p class="muted">Kein Spieler passt zu „${esc(state.filter)}“.</p>` : ""}
   </section>
   <section class="panel"><div class="row">
@@ -2128,10 +2160,28 @@ const DEMO = [
 ];
 
 view.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-hallk],[data-hswap],[data-format],[data-statf],[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
+  const t = e.target.closest("[data-ask],[data-hallk],[data-hswap],[data-format],[data-statf],[data-editscore],[data-savescore],[data-opengame],[data-pf],[data-assign],[data-unassign],[data-dorga],[data-release],[data-delrow],[data-plf],[data-me],[data-act],[data-swap],[data-edit],[data-dpos],[data-dpos2],[data-dattr],[data-delgame]");
   if (!t) return;
   const cur = state.current;
   if (t.dataset.me) { await setMe(t.dataset.me); return; }
+  if (t.dataset.ask) {
+    e.preventDefault(); // the buttons sit inside the row's <label>: don't toggle the checkbox
+    const m = askModel(), id = t.dataset.ask; let v = t.dataset.v;
+    if (askOf(m, id) === v) v = "";
+    const ask = { ...(m.ask || {}) }; delete ask[id];
+    if (v === "y") m.selected = [...new Set([...(m.selected || []), id])];
+    else {
+      m.selected = (m.selected || []).filter(x => x !== id);
+      if (m !== state.hall) {
+        if (m.assign && m.assign[id]) { const a = { ...m.assign }; delete a[id]; m.assign = a; }
+        if (m.late && m.late.includes(id)) m.late = m.late.filter(x => x !== id);
+      }
+      if (v) ask[id] = v;
+    }
+    m.ask = ask; state.confirmAskReset = false;
+    if (m === state.hall) saveHall(); else store.saveCurrent();
+    return render();
+  }
   if (t.dataset.hallk) {
     if (+t.dataset.hallk !== hallK()) { state.hall.k = +t.dataset.hallk; state.hall.teams = null; state.hswap = null; saveHall(); }
     return render();
@@ -2331,7 +2381,13 @@ view.addEventListener("click", async (e) => {
       break;
     }
     case "copy": copyText(waText(), document.getElementById("wa")); break;
-    case "h-none": state.hall.selected = []; state.hall.teams = null; state.hswap = null; saveHall(); render(); break;
+    case "ask-reset": {
+      if (!state.confirmAskReset) { state.confirmAskReset = true; return render(); }
+      state.confirmAskReset = false; const m = askModel(); m.ask = {};
+      if (m === state.hall) saveHall(); else store.saveCurrent();
+      render(); toast("Abfrage zurückgesetzt. Zusagen (Häkchen) bleiben."); break;
+    }
+    case "h-none": state.hall.selected = []; state.hall.ask = {}; state.hall.teams = null; state.hswap = null; saveHall(); render(); break;
     case "h-build": {
       const h = state.hall, ids = h.selected.filter(id => state.players[id]);
       const fit = [2, 3, 4].find(m => m * 5 === ids.length);
@@ -2356,7 +2412,7 @@ view.addEventListener("click", async (e) => {
       toast(existing ? "Spieltag aktualisiert" : isSmall() ? "Kleinfeld-Spiel gespeichert" : "Spieltag gespeichert. Vorrecht für nächste Woche steht.");
       state.statField = state.field;
       cur.date = nextMonday(new Date(new Date(cur.date + "T12:00:00").getTime() + 864e5).toISOString().slice(0, 10));
-      cur.selected = []; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; cur.fieldPos = {}; delete cur.builtAssign; store.saveCurrent();
+      cur.selected = []; cur.ask = {}; cur.a = null; cur.b = null; cur.assign = {}; cur.late = []; cur.fieldPos = {}; delete cur.builtAssign; store.saveCurrent();
       state.tab = "statistik"; render(); break;
     }
     case "export": {
@@ -2390,12 +2446,14 @@ view.addEventListener("change", async (e) => {
   if (t.dataset.hpick) {
     const id = t.dataset.hpick, h = state.hall;
     h.selected = t.checked ? [...new Set([...h.selected, id])] : h.selected.filter(x => x !== id);
+    if (t.checked && h.ask && h.ask[id]) { const a = { ...h.ask }; delete a[id]; h.ask = a; }
     saveHall(); render(); return;
   }
   if (t.id === "hdate") { state.hall.date = t.value || nextMonday(); saveHall(); return; }
   if (t.dataset.pick) {
     const id = t.dataset.pick;
     cur.selected = t.checked ? [...new Set([...cur.selected, id])] : cur.selected.filter(x => x !== id);
+    if (t.checked && cur.ask && cur.ask[id]) { const a = { ...cur.ask }; delete a[id]; cur.ask = a; }
     if (!t.checked && cur.assign && cur.assign[id]) { const a = { ...cur.assign }; delete a[id]; cur.assign = a; }
     if (!t.checked && cur.late && cur.late.includes(id)) cur.late = cur.late.filter(x => x !== id);
     store.saveCurrent(); render();

@@ -23,6 +23,10 @@ Als claude.ai-Artifact veröffentlicht, nutzt die App einen gemeinsamen Speicher
 
 Für die Hallenturniere im Winter: 2, 3 oder 4 Teams à 5 Spieler (Rot, Blau, Gelb, Grün), ohne Torwart, je Team 3 Defensive und 2 Offensive. Defensiv zählen TW, LV, IV, RV, ZM, offensiv ZOM, LF, RF, ST (Hauptposition). Bei genau 10 oder 15 Abgehakten wird die Teamzahl automatisch angepasst. Tauschen durch Antippen, WhatsApp-Text und Bild mit allen Teams. Eigene Auswahl in `meta/hall`, unabhängig von Groß- und Kleinfeld.
 
+## Abfrage (wer kann?)
+
+Bei Spieltag, Kleinfeld und Halle hat jeder Spieler drei Knöpfe: **?** (gefragt, wartet auf Antwort), **Ja** (Zusage, gleich „dabei“ abgehakt) und **Nein** (Absage, rutscht nach unten in „Abgesagt“). Oben zählt eine Übersicht offen, gefragt, Zusage und Absage. Nach „Spieltag speichern“ ist die Abfrage wieder leer. In der Halle leert „Auswahl leeren“ auch die Abfrage. Alle aus der Orga sehen denselben Stand.
+
 ## Nächste Phasen (Ideen)
 
 2. Link für alle Spieler zum Zu- und Absagen, mit Vorrecht-Frist und Warteliste.
