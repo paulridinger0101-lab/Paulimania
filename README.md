@@ -36,7 +36,7 @@ Bei Spieltag, Kleinfeld und Halle hat jeder Spieler drei Knöpfe: **?** (gefragt
 
 # Unser Einkauf (`einkauf/`)
 
-Gemeinsame Einkaufsliste mit einer Liste pro Markt (Rewe, Aldi, Lidl, Kaufland, DM, Egal wo). Läuft über GitHub Pages ohne Anmeldung, die Daten liegen in Firebase Firestore und gleichen sich live zwischen allen Handys ab, auch offline im Laden.
+Gemeinsame Haushalts-App mit zwei Bereichen: **Einkaufen** (eine Liste pro Markt: Rewe, Aldi, Lidl, Kaufland, DM, Egal wo) und **To-Dos** (Paul, Elina, Schule; Aufgaben mit optionalem Fälligkeitsdatum). Läuft über GitHub Pages ohne Anmeldung, die Daten liegen in Firebase Firestore und gleichen sich live zwischen allen Handys ab, auch offline im Laden.
 
 - Adresse: https://paulridinger0101-lab.github.io/Paulimania/einkauf/
 - Wer den Link mit dem Haushalts-Code (`#…`) hat, kann mitschreiben.

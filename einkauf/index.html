@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Unser Einkauf</title>
+<title>Unser Haushalt</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Einkauf">
+<meta name="apple-mobile-web-app-title" content="Haushalt">
 <meta name="theme-color" content="#f1f4f0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232c7a4b'/%3E%3Cpath d='M14 18h6l5 22h20l5-15H23' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='28' cy='48' r='3.5' fill='white'/%3E%3Ccircle cx='43' cy='48' r='3.5' fill='white'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="icon.png">
@@ -65,12 +65,18 @@ button { cursor: pointer; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
 
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 14px 8px; }
-.titlerow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.titlerow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 h1 { font-family: var(--f-display); font-weight: 800; font-size: 1.75rem; letter-spacing: -.02em; margin: 0; }
 .status { font-size: .8rem; color: var(--muted); white-space: nowrap; }
 .status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
 .status.live .dot { background: var(--accent); }
 
+.seg { display: inline-flex; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 13px; padding: 3px; }
+.seg button { white-space: nowrap; border: 0; background: none; border-radius: 10px; padding: 7px 14px; font-family: var(--f-display); font-weight: 600; font-size: 1.05rem; display: flex; gap: 7px; align-items: center; color: var(--muted); }
+.seg button .n { font-family: var(--f-body); font-size: .75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.seg button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+.due { font-weight: 600; color: var(--accent); }
+.due.late { color: var(--danger); }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-block: 10px 2px; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
@@ -181,7 +187,10 @@ form.add button {
 <header class="top">
   <div class="wrap">
     <div class="titlerow">
-      <h1 id="title">Einkauf</h1>
+      <div class="seg" role="tablist" id="sections" aria-label="Bereich">
+        <button role="tab" data-section="shop" aria-selected="true">Einkaufen<span class="n" id="nShop"></span></button>
+        <button role="tab" data-section="todo" aria-selected="false">To-Dos<span class="n" id="nTodo"></span></button>
+      </div>
       <span class="status" id="status"><span class="dot"></span><span id="statusText">verbinde …</span></span>
     </div>
     <div class="tabs" role="tablist" id="tabs"></div>
@@ -250,8 +259,10 @@ const keyOf = t => t.trim().toLowerCase();
 
 // ---------- Zustand ----------
 const state = { lists: [], items: [], history: {}, ready: false, me: null, names: {} };
-let activeId = null;
-try { activeId = localStorage.getItem("einkauf.active"); } catch (e) {}
+let section = "shop", activeBy = {};
+try { section = localStorage.getItem("einkauf.section") === "todo" ? "todo" : "shop"; activeBy = JSON.parse(localStorage.getItem("einkauf.activeBy") || "{}") || {}; } catch (e) {}
+const secOf = l => l.section || "shop";
+const isTodo = () => section === "todo";
 let backend = null; // {addList, updateList, deleteList, addItem, updateItem, deleteItem, setHistory}
 
 // ---------- Lokaler Fallback (Datei direkt im Browser geöffnet) ----------
@@ -259,7 +270,8 @@ function localBackend() {
   const K = "einkauf.local";
   let d;
   try { d = JSON.parse(localStorage.getItem(K) || "null"); } catch (e) {}
-  if (!d) d = { lists: MARKETS.map(([id, name], i) => ({ id, name, order: i + 1 })), items: [], history: {} };
+  if (!d) d = { lists: seedLists({ shop: true, todo: true }), items: [], history: {} };
+  if (!d.lists.some(l => l.section === "todo")) d.lists.push(...seedLists({ todo: true }));
   const save = () => { try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} apply(); };
   const apply = () => { state.lists = d.lists.slice(); state.items = d.items.slice(); state.history = d.history; state.ready = true; render(); };
   const uid = () => Math.random().toString(36).slice(2, 10);
@@ -301,6 +313,11 @@ function dbBackend(db) {
 
 // ---------- Firebase (GitHub-Pages-Version) ----------
 const MARKETS = [["rewe", "Rewe"], ["aldi", "Aldi"], ["lidl", "Lidl"], ["kaufland", "Kaufland"], ["dm", "DM"], ["egal", "Egal wo"]];
+const TODO_LISTS = [["todo-paul", "Paul"], ["todo-elina", "Elina"], ["todo-schule", "Schule"]];
+const seedLists = (which) => [
+  ...(which.shop ? MARKETS.map(([id, name], i) => ({ id, name, order: i + 1, section: "shop" })) : []),
+  ...(which.todo ? TODO_LISTS.map(([id, name], i) => ({ id, name, order: i + 1, section: "todo" })) : []),
+];
 let mode = "local";
 function householdCode() {
   const h = decodeURIComponent(location.hash.slice(1));
@@ -328,7 +345,7 @@ function renderSetup() {
 }
 async function shareLink() {
   const url = shareUrl();
-  if (navigator.share) { try { await navigator.share({ title: "Unser Einkauf", text: "Unsere gemeinsame Einkaufsliste:", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+  if (navigator.share) { try { await navigator.share({ title: "Unser Haushalt", text: "Unsere gemeinsamen Einkaufslisten und To-Dos:", url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(url); toast("Link kopiert. Schick ihn per WhatsApp."); }
   catch (e) { openSheet(`<h3>Link zur Liste</h3><p style="margin:0;color:var(--muted)">Wer diesen Link hat, kann mitschreiben. Gib ihn nur an Leute aus eurem Haushalt.</p><input id="linkBox" readonly value="${esc(url)}" style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg)"><div class="btns"><span></span><button class="btn primary" data-close>Fertig</button></div>`); $("linkBox").select(); }
 }
@@ -366,10 +383,13 @@ async function startFirebase() {
   const histD = F.doc(fs, base + "/meta/history"), infoD = F.doc(fs, base + "/meta/info");
 
   // Neuer Haushalt: Märkte einmalig anlegen (feste IDs, doppeltes Anlegen schadet nicht)
+  // Neue Bereiche (v2: To-Dos) in bestehenden Haushalten nachrüsten
   F.getDoc(infoD).then(async s => {
-    if (s.exists()) return;
-    await Promise.all(MARKETS.map(([id, name], i) => F.setDoc(F.doc(listsC, id), { name, order: i + 1 })));
-    await F.setDoc(infoD, { created: Date.now() });
+    const v = s.exists() ? (s.data().v || 1) : 0;
+    if (v >= 2) return;
+    const add = seedLists({ shop: v === 0, todo: true });
+    await Promise.all(add.map(({ id, ...o }) => F.setDoc(F.doc(listsC, id), o)));
+    await F.setDoc(infoD, { created: (s.exists() && s.data().created) || Date.now(), v: 2 });
   }).catch(() => {});
 
   let seen = { l: false, i: false, h: false };
@@ -406,11 +426,21 @@ const DOTS = '<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor
 function setStatus(live, text) { $("status").classList.toggle("live", live); $("statusText").textContent = text; }
 function renderMessage(title, text) { $("main").innerHTML = `<div class="empty"><strong>${esc(title)}</strong>${esc(text)}</div>`; }
 
-function sortedLists() { return state.lists.slice().sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(b.name)); }
+function sortedLists(sec = section) { return state.lists.filter(l => secOf(l) === sec).sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(b.name)); }
 function activeList() {
   const ls = sortedLists();
-  return ls.find(l => l.id === activeId) || ls[0] || null;
+  return ls.find(l => l.id === activeBy[section]) || ls[0] || null;
 }
+const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+function dueLabel(due) {
+  if (!due) return null;
+  const [y, m, d] = due.split("-").map(Number);
+  const dt = new Date(y, m - 1, d), today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((dt - today) / 86400000);
+  const txt = diff === 0 ? "heute" : diff === 1 ? "morgen" : diff === -1 ? "seit gestern" : diff < 0 ? `seit ${-diff} Tagen` : diff < 7 ? `bis ${WD[dt.getDay()]}` : `bis ${d}.${m}.`;
+  return { txt, late: diff < 0 };
+}
+function openCount(sec) { const ids = new Set(sortedLists(sec).map(l => l.id)); return state.items.filter(i => ids.has(i.list) && !i.done).length; }
 function ago(ts) {
   if (!ts) return "";
   const m = Math.round((Date.now() - ts) / 60000);
@@ -428,37 +458,43 @@ function render() {
   if (!state.ready) return;
   const ls = sortedLists();
   const cur = activeList();
-  if (cur) activeId = cur.id;
+  if (cur) activeBy[section] = cur.id;
+  for (const b of document.querySelectorAll("#sections button")) b.setAttribute("aria-selected", b.dataset.section === section);
+  $("nShop").textContent = openCount("shop") || ""; $("nTodo").textContent = openCount("todo") || "";
+  $("addInput").placeholder = isTodo() ? "Neue Aufgabe, z. B. Elternbrief unterschreiben" : "z. B. 2 Milch, Bananen, 500 g Hack";
+  $("addInput").setAttribute("aria-label", isTodo() ? "Neue Aufgabe" : "Was fehlt?");
 
   $("tabs").innerHTML = ls.map(l => {
     const n = state.items.filter(i => i.list === l.id && !i.done).length;
     return `<button class="tab" role="tab" aria-selected="${cur && l.id === cur.id}" data-list="${esc(l.id)}">${esc(l.name)}<span class="n">${n || ""}</span></button>`;
   }).join("") + `<button class="tab add" id="newList" aria-label="Neue Liste">+ Liste</button>`;
-  $("title").textContent = cur ? cur.name : "Einkauf";
-
   if (!cur) {
-    renderMessage("Noch keine Liste", "Leg oben mit „+ Liste“ eure erste Liste an, zum Beispiel „Einkauf“.");
+    renderMessage("Noch keine Liste", isTodo() ? "Leg oben mit „+ Liste“ eure erste To-do-Liste an, zum Beispiel „Paul“." : "Leg oben mit „+ Liste“ eure erste Liste an, zum Beispiel „Rewe“.");
     $("addForm").hidden = true; $("sugg").innerHTML = ""; return;
   }
   $("addForm").hidden = false;
 
   const mine = state.items.filter(i => i.list === cur.id);
-  const open = mine.filter(i => !i.done).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const open = mine.filter(i => !i.done).sort((a, b) => isTodo() ? ((a.due || "9999") .localeCompare(b.due || "9999") || (a.at || 0) - (b.at || 0)) : (a.at || 0) - (b.at || 0));
   const done = mine.filter(i => i.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
 
   let html = "";
   if (!open.length && !done.length) {
-    html = `<div class="empty"><strong>Alles da</strong>Auf „${esc(cur.name)}“ steht gerade nichts. Unten eintippen, was fehlt.</div>`;
+    html = isTodo() ? `<div class="empty"><strong>Nichts zu tun</strong>Auf „${esc(cur.name)}“ steht gerade keine Aufgabe. Unten eintippen, was ansteht.</div>`
+      : `<div class="empty"><strong>Alles da</strong>Auf „${esc(cur.name)}“ steht gerade nichts. Unten eintippen, was fehlt.</div>`;
   } else if (!open.length) {
-    html = `<div class="empty"><strong>Alles im Wagen</strong>Fertig eingekauft. Räum die Liste unten auf.</div>`;
+    html = isTodo() ? `<div class="empty"><strong>Alles erledigt</strong>Räum die Liste unten auf.</div>`
+      : `<div class="empty"><strong>Alles im Wagen</strong>Fertig eingekauft. Räum die Liste unten auf.</div>`;
   }
-  for (const c of CATS) {
+  if (isTodo()) {
+    if (open.length) html += `<section class="group"><div class="card">${open.map(itemRow).join("")}</div></section>`;
+  } else for (const c of CATS) {
     const g = open.filter(i => (i.cat || "sonst") === c.id);
     if (!g.length) continue;
     html += `<section class="group"><h2><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</h2><div class="card">${g.map(itemRow).join("")}</div></section>`;
   }
   if (done.length) {
-    html += `<div class="donehead"><h2>Im Wagen · ${done.length}</h2><button class="link danger" id="clearDone">Abgehakte löschen</button></div>
+    html += `<div class="donehead"><h2>${isTodo() ? "Erledigt" : "Im Wagen"} · ${done.length}</h2><button class="link danger" id="clearDone">${isTodo() ? "Erledigte" : "Abgehakte"} löschen</button></div>
       <div class="card">${done.map(itemRow).join("")}</div>`;
   }
   const extra = mode === "fb" ? `<button class="chipbtn" id="shareLink">Link teilen</button><button class="chipbtn" id="changeName">${state.me ? "Ich bin " + esc(state.me) : "Name eintragen"}</button>` : "";
@@ -470,17 +506,18 @@ function render() {
 }
 function itemRow(i) {
   const by = who(i.by);
-  const meta = [i.note, i.done ? "" : (by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : "")].filter(Boolean).join(" · ");
+  const dl = !i.done && dueLabel(i.due);
+  const meta = [dl ? `<span class="due${dl.late ? " late" : ""}">${esc(dl.txt)}</span>` : "", esc(i.note), i.done ? "" : esc((by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : ""))].filter(Boolean).join(" · ");
   return `<div class="item${i.done ? " done" : ""}" data-item="${esc(i.id)}">
     <button class="tick" data-toggle="${esc(i.id)}" aria-pressed="${!!i.done}">
       <span class="box">${CHECK}</span>
-      <span class="txt"><span class="name">${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ""}${esc(i.text)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</span>
+      <span class="txt"><span class="name">${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ""}${esc(i.text)}</span>${meta ? `<span class="meta">${meta}</span>` : ""}</span>
     </button>
     <button class="more" data-edit="${esc(i.id)}" aria-label="${esc(i.text)} bearbeiten">${DOTS}</button>
   </div>`;
 }
 function renderSugg() {
-  const cur = activeList(); if (!cur) return;
+  const cur = activeList(); if (!cur || isTodo()) { $("sugg").innerHTML = ""; $("sugg").hidden = true; return; }
   const q = keyOf($("addInput").value);
   const onList = new Set(state.items.filter(i => i.list === cur.id && !i.done).map(i => keyOf(i.text)));
   const entries = Object.entries(state.history)
@@ -510,6 +547,15 @@ async function resolveNames() {
 // ---------- Aktionen ----------
 async function addEntry(raw) {
   const cur = activeList(); if (!cur || !raw.trim()) return;
+  if (isTodo()) {
+    for (const p of raw.split(/[;\n]+/).map(s => s.trim()).filter(Boolean)) {
+      const text = p.charAt(0).toUpperCase() + p.slice(1);
+      const existing = state.items.find(i => i.list === cur.id && !i.done && keyOf(i.text) === keyOf(text));
+      if (existing) { flashId = existing.id; toast(`${text} steht schon drauf.`); render(); continue; }
+      await backend.addItem({ list: cur.id, text, note: "", due: "", done: false, at: Date.now(), by: state.me || null });
+    }
+    return;
+  }
   const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
   const hist = { ...state.history };
   for (const p of parts) {
@@ -548,7 +594,8 @@ async function copyList() {
   const cur = activeList();
   const open = state.items.filter(i => i.list === cur.id && !i.done);
   let txt = `${cur.name}:\n`;
-  for (const c of CATS) {
+  if (isTodo()) txt += "\n" + open.map(i => { const dl = dueLabel(i.due); return `☐ ${i.text}${dl ? " (" + dl.txt + ")" : ""}${i.note ? " – " + i.note : ""}`; }).join("\n");
+  else for (const c of CATS) {
     const g = open.filter(i => (i.cat || "sonst") === c.id);
     if (!g.length) continue;
     txt += `\n${c.name}\n` + g.map(i => `• ${i.qty ? i.qty + " " : ""}${i.text}${i.note ? " (" + i.note + ")" : ""}`).join("\n") + "\n";
@@ -568,6 +615,7 @@ function closeSheet() { $("sheetHost").innerHTML = ""; }
 function editItem(id) {
   const i = state.items.find(x => x.id === id); if (!i) return;
   const ls = sortedLists();
+  if (isTodo()) return editTodo(i, ls);
   openSheet(`
     <h3>Eintrag bearbeiten</h3>
     <div class="field"><label for="eText">Was</label><input id="eText" value="${esc(i.text)}"></div>
@@ -596,11 +644,36 @@ function editItem(id) {
     };
   });
 }
+function editTodo(i, ls) {
+  const id = i.id;
+  openSheet(`
+    <h3>Aufgabe bearbeiten</h3>
+    <div class="field"><label for="tText">Was</label><input id="tText" value="${esc(i.text)}"></div>
+    <div class="row2">
+      <div class="field"><label for="tDue">Bis wann</label><input id="tDue" type="date" value="${esc(i.due)}"></div>
+      <div class="field"><label for="tList">Liste</label><select id="tList">${ls.map(l => `<option value="${esc(l.id)}"${l.id === i.list ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label for="tNote">Notiz</label><input id="tNote" value="${esc(i.note)}" placeholder="z. B. Unterlagen liegen im Flur"></div>
+    <div class="btns">
+      <button class="btn danger" id="tDel">Löschen</button>
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="tSave">Speichern</button></span>
+    </div>`, () => {
+    $("tSave").onclick = () => {
+      const text = $("tText").value.trim(); if (!text) return;
+      backend.updateItem(id, { text, due: $("tDue").value || "", note: $("tNote").value.trim(), list: $("tList").value });
+      closeSheet();
+    };
+    $("tDel").onclick = () => {
+      const copy = { ...i }; closeSheet(); backend.deleteItem(id);
+      toast(`${i.text} gelöscht.`, "Rückgängig", () => { const { id: _, ...rest } = copy; backend.addItem(rest); });
+    };
+  });
+}
 function listSheet(l) {
   const isNew = !l;
   openSheet(`
     <h3>${isNew ? "Neue Liste" : "Liste bearbeiten"}</h3>
-    <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="z. B. Drogerie, Baumarkt, Party"></div>
+    <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="${isTodo() ? "z. B. Garten, Urlaub" : "z. B. Baumarkt, Party"}"></div>
     <div class="btns">
       ${isNew ? "<span></span>" : `<button class="btn danger" id="lDel">Liste löschen</button>`}
       <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="lSave">${isNew ? "Anlegen" : "Speichern"}</button></span>
@@ -610,9 +683,9 @@ function listSheet(l) {
     const save = async () => {
       const name = $("lName").value.trim(); if (!name) return;
       if (isNew) {
-        const order = Math.max(0, ...state.lists.map(x => x.order || 0)) + 1;
-        await backend.addList({ name, order });
-        const nl = state.lists.find(x => x.name === name); if (nl) setActive(nl.id);
+        const order = Math.max(0, ...sortedLists().map(x => x.order || 0)) + 1;
+        await backend.addList({ name, order, section });
+        const nl = sortedLists().find(x => x.name === name); if (nl) setActive(nl.id);
       } else await backend.updateList(l.id, { name });
       closeSheet();
     };
@@ -621,11 +694,13 @@ function listSheet(l) {
     if (!isNew) $("lDel").onclick = () => {
       const n = state.items.filter(i => i.list === l.id).length;
       $("lConfirm").innerHTML = `<p style="margin:4px 0;color:var(--danger)">„${esc(l.name)}“ ${n ? `und ${n} Einträge ` : ""}endgültig löschen?</p><button class="btn danger" id="lDel2">Ja, löschen</button>`;
-      $("lDel2").onclick = async () => { closeSheet(); await backend.deleteList(l.id); activeId = null; render(); };
+      $("lDel2").onclick = async () => { closeSheet(); await backend.deleteList(l.id); delete activeBy[section]; render(); };
     };
   });
 }
-function setActive(id) { activeId = id; try { localStorage.setItem("einkauf.active", id); } catch (e) {} render(); window.scrollTo({ top: 0 }); }
+function remember() { try { localStorage.setItem("einkauf.section", section); localStorage.setItem("einkauf.activeBy", JSON.stringify(activeBy)); } catch (e) {} }
+function setActive(id) { activeBy[section] = id; remember(); render(); window.scrollTo({ top: 0 }); }
+function setSection(sec) { if (sec === section) return; section = sec; $("addInput").value = ""; remember(); render(); window.scrollTo({ top: 0 }); }
 
 let toastTimer;
 function toast(msg, actLabel, act) {
@@ -638,7 +713,8 @@ function toast(msg, actLabel, act) {
 // ---------- Events ----------
 document.addEventListener("click", e => {
   const t = e.target.closest("button"); if (!t) return;
-  if (t.dataset.list) setActive(t.dataset.list);
+  if (t.dataset.section) setSection(t.dataset.section);
+  else if (t.dataset.list) setActive(t.dataset.list);
   else if (t.id === "newList") listSheet(null);
   else if (t.id === "editList") listSheet(activeList());
   else if (t.dataset.toggle) toggle(t.dataset.toggle);
