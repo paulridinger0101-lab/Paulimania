@@ -71,11 +71,25 @@ h1 { font-family: var(--f-display); font-weight: 800; font-size: 1.75rem; letter
 .status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
 .status.live .dot { background: var(--accent); }
 
-.seg { display: inline-flex; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 13px; padding: 3px; }
+.seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; display: inline-flex; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 13px; padding: 3px; }
 .seg button { white-space: nowrap; border: 0; background: none; border-radius: 10px; padding: 7px 14px; font-family: var(--f-display); font-weight: 600; font-size: 1.05rem; display: flex; gap: 7px; align-items: center; color: var(--muted); }
 .seg button .n { font-family: var(--f-body); font-size: .75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 .seg button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+.seg::-webkit-scrollbar { display: none; }
 .due { font-weight: 600; color: var(--accent); }
+.price { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.recipe { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 14px; min-height: 60px; }
+.card > .recipe:first-child { border-top: 0; }
+.recipe .rname { font-family: var(--f-display); font-weight: 600; font-size: 1.08rem; }
+.recipe .chev { margin-left: auto; color: var(--muted); flex: none; }
+.field textarea { border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 10px 12px; font: inherit; min-height: 110px; resize: vertical; }
+.rsec { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; margin: 6px 0 0; }
+.ing { display: flex; align-items: center; gap: 10px; padding: 6px 2px; cursor: pointer; }
+.ing input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+.steps { white-space: pre-wrap; margin: 0; line-height: 1.55; }
+.shoprow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--accent-soft); border-radius: 12px; padding: 10px; }
+.shoprow select { flex: 1; min-width: 120px; border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 9px 10px; }
+a.more { text-decoration: none; }
 .due.late { color: var(--danger); }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-block: 10px 2px; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -188,8 +202,6 @@ form.add button {
   <div class="wrap">
     <div class="titlerow">
       <div class="seg" role="tablist" id="sections" aria-label="Bereich">
-        <button role="tab" data-section="shop" aria-selected="true">Einkaufen<span class="n" id="nShop"></span></button>
-        <button role="tab" data-section="todo" aria-selected="false">To-Dos<span class="n" id="nTodo"></span></button>
       </div>
       <span class="status" id="status"><span class="dot"></span><span id="statusText">verbinde …</span></span>
     </div>
@@ -206,7 +218,7 @@ form.add button {
     <div class="sugg" id="sugg"></div>
     <form class="add" id="addForm" autocomplete="off">
       <input id="addInput" placeholder="z. B. 2 Milch, Bananen, 500 g Hack" aria-label="Was fehlt?" enterkeyhint="done">
-      <button type="submit">Dazu</button>
+      <button type="submit" id="addBtn">Dazu</button>
     </form>
   </div>
 </div>
@@ -259,10 +271,25 @@ const keyOf = t => t.trim().toLowerCase();
 
 // ---------- Zustand ----------
 const state = { lists: [], items: [], history: {}, ready: false, me: null, names: {} };
+const SECTIONS = [
+  { id: "shop", name: "Einkaufen", kind: "shop" },
+  { id: "todo", name: "To-Dos", kind: "todo" },
+  { id: "schule", name: "Techniker Schule", kind: "todo" },
+  { id: "rezepte", name: "Rezepte", kind: "recipe" },
+  { id: "wunsch", name: "Wunschlisten", kind: "wish" },
+];
 let section = "shop", activeBy = {};
-try { section = localStorage.getItem("einkauf.section") === "todo" ? "todo" : "shop"; activeBy = JSON.parse(localStorage.getItem("einkauf.activeBy") || "{}") || {}; } catch (e) {}
+try { const sv = localStorage.getItem("einkauf.section"); if (SECTIONS.some(x => x.id === sv)) section = sv; activeBy = JSON.parse(localStorage.getItem("einkauf.activeBy") || "{}") || {}; } catch (e) {}
 const secOf = l => l.section || "shop";
-const isTodo = () => section === "todo";
+const kind = (sec = section) => (SECTIONS.find(x => x.id === sec) || SECTIONS[0]).kind;
+const isTodo = () => kind() === "todo";
+const TEXT = {
+  shop:   { ph: "z. B. 2 Milch, Bananen, 500 g Hack", add: "Dazu", list: "Liste", listPh: "z. B. Baumarkt, Party", done: "Im Wagen", clear: "Abgehakte löschen" },
+  todo:   { ph: "Neue Aufgabe, z. B. Elternbrief unterschreiben", add: "Dazu", list: "Liste", listPh: "z. B. Garten, Urlaub", done: "Erledigt", clear: "Erledigte löschen" },
+  recipe: { ph: "Neues Rezept, z. B. Lasagne", add: "Anlegen", list: "Kategorie", listPh: "z. B. Suppen, Kuchen", done: "", clear: "" },
+  wish:   { ph: "Neuer Wunsch, z. B. Kopfhörer", add: "Dazu", list: "Liste", listPh: "z. B. Kinder, Geburtstag", done: "Besorgt", clear: "Besorgte löschen" },
+};
+const T = () => (section === "schule" ? { ...TEXT.todo, ph: "Neue Aufgabe, z. B. Hausarbeit abgeben", listPh: "z. B. Mathe, Projektarbeit" } : TEXT[kind()]);
 let backend = null; // {addList, updateList, deleteList, addItem, updateItem, deleteItem, setHistory}
 
 // ---------- Lokaler Fallback (Datei direkt im Browser geöffnet) ----------
@@ -270,8 +297,12 @@ function localBackend() {
   const K = "einkauf.local";
   let d;
   try { d = JSON.parse(localStorage.getItem(K) || "null"); } catch (e) {}
-  if (!d) d = { lists: seedLists({ shop: true, todo: true }), items: [], history: {} };
-  if (!d.lists.some(l => l.section === "todo")) d.lists.push(...seedLists({ todo: true }));
+  if (!d) d = { lists: seedLists(), items: [], history: {}, v: SEED_VERSION };
+  if ((d.v || 1) < SEED_VERSION) {
+    for (const l of d.lists) if (MIGRATE[l.id]) Object.assign(l, MIGRATE[l.id]);
+    for (const l of seedLists()) if (!d.lists.some(x => x.id === l.id || x.id === MIGRATED_TO[l.id])) d.lists.push(l);
+    d.v = SEED_VERSION;
+  }
   const save = () => { try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} apply(); };
   const apply = () => { state.lists = d.lists.slice(); state.items = d.items.slice(); state.history = d.history; state.ready = true; render(); };
   const uid = () => Math.random().toString(36).slice(2, 10);
@@ -281,7 +312,7 @@ function localBackend() {
     addList: async (o) => { d.lists.push({ id: uid(), ...o }); save(); },
     updateList: async (id, o) => { Object.assign(d.lists.find(l => l.id === id), o); save(); },
     deleteList: async (id) => { d.lists = d.lists.filter(l => l.id !== id); d.items = d.items.filter(i => i.list !== id); save(); },
-    addItem: async (o) => { d.items.push({ id: uid(), ...o }); save(); },
+    addItem: async (o) => { const id = uid(); d.items.push({ id, ...o }); save(); return id; },
     updateItem: async (id, o) => { Object.assign(d.items.find(i => i.id === id) || {}, o); save(); },
     deleteItem: async (id) => { d.items = d.items.filter(i => i.id !== id); save(); },
     setHistory: async (h) => { d.history = h; save(); },
@@ -304,7 +335,7 @@ function dbBackend(db) {
     addList: o => guard(lists.add(o)),
     updateList: (id, o) => guard(lists.doc(id).update(o)),
     deleteList: async id => { await guard(lists.doc(id).delete()); for (const i of state.items.filter(i => i.list === id)) await items.doc(i.id).delete().catch(() => {}); },
-    addItem: o => guard(items.add(o)),
+    addItem: o => { const r = items.doc(); return guard(r.set(o)).then(() => r.id); },
     updateItem: (id, o) => guard(items.doc(id).update(o)),
     deleteItem: id => guard(items.doc(id).delete()),
     setHistory: h => hist.set({ counts: h }).catch(() => {}),
@@ -313,11 +344,18 @@ function dbBackend(db) {
 
 // ---------- Firebase (GitHub-Pages-Version) ----------
 const MARKETS = [["rewe", "Rewe"], ["aldi", "Aldi"], ["lidl", "Lidl"], ["kaufland", "Kaufland"], ["dm", "DM"], ["egal", "Egal wo"]];
-const TODO_LISTS = [["todo-paul", "Paul"], ["todo-elina", "Elina"], ["todo-schule", "Schule"]];
-const seedLists = (which) => [
-  ...(which.shop ? MARKETS.map(([id, name], i) => ({ id, name, order: i + 1, section: "shop" })) : []),
-  ...(which.todo ? TODO_LISTS.map(([id, name], i) => ({ id, name, order: i + 1, section: "todo" })) : []),
-];
+const SEED = {
+  shop: MARKETS,
+  todo: [["todo-paul", "Paul"], ["todo-elina", "Elina"]],
+  schule: [["schule-aufgaben", "Aufgaben"]],
+  rezepte: [["rezepte-kochen", "Kochen"], ["rezepte-backen", "Backen"]],
+  wunsch: [["wunsch-paul", "Paul"], ["wunsch-elina", "Elina"]],
+};
+const SEED_VERSION = 3;
+const seedLists = () => Object.entries(SEED).flatMap(([sec, arr]) => arr.map(([id, name], i) => ({ id, name, order: i + 1, section: sec })));
+// v3: aus der alten To-do-Liste "Schule" wird die Liste "Aufgaben" im Bereich Techniker Schule
+const MIGRATE = { "todo-schule": { section: "schule", name: "Aufgaben", order: 1 } };
+const MIGRATED_TO = { "schule-aufgaben": "todo-schule" };
 let mode = "local";
 function householdCode() {
   const h = decodeURIComponent(location.hash.slice(1));
@@ -386,10 +424,14 @@ async function startFirebase() {
   // Neue Bereiche (v2: To-Dos) in bestehenden Haushalten nachrüsten
   F.getDoc(infoD).then(async s => {
     const v = s.exists() ? (s.data().v || 1) : 0;
-    if (v >= 2) return;
-    const add = seedLists({ shop: v === 0, todo: true });
-    await Promise.all(add.map(({ id, ...o }) => F.setDoc(F.doc(listsC, id), o)));
-    await F.setDoc(infoD, { created: (s.exists() && s.data().created) || Date.now(), v: 2 });
+    if (v >= SEED_VERSION) return;
+    for (const [id, o] of Object.entries(MIGRATE)) { const r = F.doc(listsC, id); if ((await F.getDoc(r)).exists()) await F.updateDoc(r, o); }
+    for (const { id, ...o } of seedLists()) {
+      const ids = [id, MIGRATED_TO[id]].filter(Boolean);
+      let has = false; for (const x of ids) if ((await F.getDoc(F.doc(listsC, x))).exists()) has = true;
+      if (!has) await F.setDoc(F.doc(listsC, id), o);
+    }
+    await F.setDoc(infoD, { created: (s.exists() && s.data().created) || Date.now(), v: SEED_VERSION });
   }).catch(() => {});
 
   let seen = { l: false, i: false, h: false };
@@ -410,7 +452,7 @@ async function startFirebase() {
     addList: o => bg(F.addDoc(listsC, o)),
     updateList: (id, o) => bg(F.updateDoc(F.doc(listsC, id), o)),
     deleteList: id => { bg(F.deleteDoc(F.doc(listsC, id))); for (const i of state.items.filter(i => i.list === id)) bg(F.deleteDoc(F.doc(itemsC, i.id))); return Promise.resolve(); },
-    addItem: o => bg(F.addDoc(itemsC, o)),
+    addItem: o => { const r = F.doc(itemsC); bg(F.setDoc(r, o)); return Promise.resolve(r.id); },
     updateItem: (id, o) => bg(F.updateDoc(F.doc(itemsC, id), o)),
     deleteItem: id => bg(F.deleteDoc(F.doc(itemsC, id))),
     setHistory: h => bg(F.setDoc(histD, { counts: h })),
@@ -458,35 +500,51 @@ function render() {
   if (!state.ready) return;
   const ls = sortedLists();
   const cur = activeList();
+  const k = kind(), t = T();
   if (cur) activeBy[section] = cur.id;
-  for (const b of document.querySelectorAll("#sections button")) b.setAttribute("aria-selected", b.dataset.section === section);
-  $("nShop").textContent = openCount("shop") || ""; $("nTodo").textContent = openCount("todo") || "";
-  $("addInput").placeholder = isTodo() ? "Neue Aufgabe, z. B. Elternbrief unterschreiben" : "z. B. 2 Milch, Bananen, 500 g Hack";
-  $("addInput").setAttribute("aria-label", isTodo() ? "Neue Aufgabe" : "Was fehlt?");
+  $("sections").innerHTML = SECTIONS.map(x => `<button role="tab" data-section="${x.id}" aria-selected="${x.id === section}">${esc(x.name)}<span class="n">${x.kind === "recipe" ? "" : (openCount(x.id) || "")}</span></button>`).join("");
+  if (render.sec !== section) { render.sec = section; const sb = document.querySelector('#sections [aria-selected="true"]'); if (sb) sb.scrollIntoView({ inline: "nearest", block: "nearest" }); }
+  $("addInput").placeholder = t.ph;
+  $("addInput").setAttribute("aria-label", t.ph);
+  $("addBtn").textContent = t.add;
 
   $("tabs").innerHTML = ls.map(l => {
-    const n = state.items.filter(i => i.list === l.id && !i.done).length;
+    const n = state.items.filter(i => i.list === l.id && (k === "recipe" || !i.done)).length;
     return `<button class="tab" role="tab" aria-selected="${cur && l.id === cur.id}" data-list="${esc(l.id)}">${esc(l.name)}<span class="n">${n || ""}</span></button>`;
-  }).join("") + `<button class="tab add" id="newList" aria-label="Neue Liste">+ Liste</button>`;
+  }).join("") + `<button class="tab add" id="newList" aria-label="Neue ${t.list}">+ ${t.list}</button>`;
   if (!cur) {
-    renderMessage("Noch keine Liste", isTodo() ? "Leg oben mit „+ Liste“ eure erste To-do-Liste an, zum Beispiel „Paul“." : "Leg oben mit „+ Liste“ eure erste Liste an, zum Beispiel „Rewe“.");
+    renderMessage(`Noch keine ${t.list}`, `Leg oben mit „+ ${t.list}“ die erste an.`);
     $("addForm").hidden = true; $("sugg").innerHTML = ""; return;
   }
   $("addForm").hidden = false;
 
   const mine = state.items.filter(i => i.list === cur.id);
-  const open = mine.filter(i => !i.done).sort((a, b) => isTodo() ? ((a.due || "9999") .localeCompare(b.due || "9999") || (a.at || 0) - (b.at || 0)) : (a.at || 0) - (b.at || 0));
-  const done = mine.filter(i => i.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-
   let html = "";
-  if (!open.length && !done.length) {
-    html = isTodo() ? `<div class="empty"><strong>Nichts zu tun</strong>Auf „${esc(cur.name)}“ steht gerade keine Aufgabe. Unten eintippen, was ansteht.</div>`
-      : `<div class="empty"><strong>Alles da</strong>Auf „${esc(cur.name)}“ steht gerade nichts. Unten eintippen, was fehlt.</div>`;
-  } else if (!open.length) {
-    html = isTodo() ? `<div class="empty"><strong>Alles erledigt</strong>Räum die Liste unten auf.</div>`
-      : `<div class="empty"><strong>Alles im Wagen</strong>Fertig eingekauft. Räum die Liste unten auf.</div>`;
+  const extra = mode === "fb" ? `<button class="chipbtn" id="shareLink">Link teilen</button><button class="chipbtn" id="changeName">${state.me ? "Ich bin " + esc(state.me) : "Name eintragen"}</button>` : "";
+
+  if (k === "recipe") {
+    const rs = mine.slice().sort((a, b) => String(a.text).localeCompare(b.text, "de"));
+    html = rs.length
+      ? `<section class="group"><div class="card">${rs.map(recipeRow).join("")}</div></section>`
+      : `<div class="empty"><strong>Noch keine Rezepte</strong>Tipp unten den Namen eines Rezepts ein, z. B. „Lasagne“. Danach trägst du Zutaten und Zubereitung ein.</div>`;
+    html += `<div class="tools"><button class="chipbtn" id="editList">Kategorie umbenennen</button>${extra}</div>`;
+    $("main").innerHTML = html;
+    renderSugg();
+    return;
   }
-  if (isTodo()) {
+
+  const open = mine.filter(i => !i.done).sort((a, b) => k === "todo" ? ((a.due || "9999").localeCompare(b.due || "9999") || (a.at || 0) - (b.at || 0)) : (a.at || 0) - (b.at || 0));
+  const done = mine.filter(i => i.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  if (!open.length && !done.length) {
+    html = k === "shop" ? `<div class="empty"><strong>Alles da</strong>Auf „${esc(cur.name)}“ steht gerade nichts. Unten eintippen, was fehlt.</div>`
+      : k === "wish" ? `<div class="empty"><strong>Noch keine Wünsche</strong>Unten eintippen, was sich ${esc(cur.name)} wünscht. Preis und Link kannst du über „⋯“ ergänzen.</div>`
+      : `<div class="empty"><strong>Nichts zu tun</strong>Auf „${esc(cur.name)}“ steht gerade keine Aufgabe. Unten eintippen, was ansteht.</div>`;
+  } else if (!open.length) {
+    html = k === "shop" ? `<div class="empty"><strong>Alles im Wagen</strong>Fertig eingekauft. Räum die Liste unten auf.</div>`
+      : k === "wish" ? `<div class="empty"><strong>Alles besorgt</strong>Räum die Liste unten auf.</div>`
+      : `<div class="empty"><strong>Alles erledigt</strong>Räum die Liste unten auf.</div>`;
+  }
+  if (k !== "shop") {
     if (open.length) html += `<section class="group"><div class="card">${open.map(itemRow).join("")}</div></section>`;
   } else for (const c of CATS) {
     const g = open.filter(i => (i.cat || "sonst") === c.id);
@@ -494,30 +552,41 @@ function render() {
     html += `<section class="group"><h2><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</h2><div class="card">${g.map(itemRow).join("")}</div></section>`;
   }
   if (done.length) {
-    html += `<div class="donehead"><h2>${isTodo() ? "Erledigt" : "Im Wagen"} · ${done.length}</h2><button class="link danger" id="clearDone">${isTodo() ? "Erledigte" : "Abgehakte"} löschen</button></div>
+    html += `<div class="donehead"><h2>${t.done} · ${done.length}</h2><button class="link danger" id="clearDone">${t.clear}</button></div>
       <div class="card">${done.map(itemRow).join("")}</div>`;
   }
-  const extra = mode === "fb" ? `<button class="chipbtn" id="shareLink">Link teilen</button><button class="chipbtn" id="changeName">${state.me ? "Ich bin " + esc(state.me) : "Name eintragen"}</button>` : "";
   html += `<div class="tools">${open.length ? `<button class="chipbtn" id="copyList">Als Text kopieren</button>` : ""}<button class="chipbtn" id="editList">Liste umbenennen</button>${extra}</div>`;
   $("main").innerHTML = html;
   if (flashId) { const el = document.querySelector(`[data-item="${CSS.escape(flashId)}"]`); if (el) { el.classList.add("flash"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } flashId = null; }
   renderSugg();
   resolveNames();
 }
+const ingLines = r => String(r.ingredients || "").split("\n").map(x => x.replace(/^[-•*\s]+/, "").trim()).filter(Boolean);
+const CHEV = '<svg class="chev" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>';
+const LINK = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4h5v5M16 4l-7 7M14 12v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3"/></svg>';
+function recipeRow(r) {
+  const n = ingLines(r).length;
+  const meta = [n ? `${n} Zutaten` : "noch keine Zutaten", r.servings ? `${r.servings} Portionen` : "", r.note].filter(Boolean).join(" · ");
+  return `<button class="recipe" data-recipe="${esc(r.id)}"><span class="txt"><span class="rname">${esc(r.text)}</span><span class="meta">${esc(meta)}</span></span>${CHEV}</button>`;
+}
+function safeUrl(u) { u = String(u || "").trim(); if (!u) return ""; if (!/^https?:\/\//i.test(u)) u = "https://" + u; try { return new URL(u).href; } catch (e) { return ""; } }
+function priceText(p) { p = String(p || "").trim(); if (!p) return ""; return /^\d+([.,]\d{1,2})?$/.test(p) ? p.replace(".", ",") + " €" : p; }
 function itemRow(i) {
   const by = who(i.by);
   const dl = !i.done && dueLabel(i.due);
-  const meta = [dl ? `<span class="due${dl.late ? " late" : ""}">${esc(dl.txt)}</span>` : "", esc(i.note), i.done ? "" : esc((by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : ""))].filter(Boolean).join(" · ");
+  const pr = priceText(i.price);
+  const meta = [dl ? `<span class="due${dl.late ? " late" : ""}">${esc(dl.txt)}</span>` : "", pr ? `<span class="price">${esc(pr)}</span>` : "", esc(i.note), i.done ? "" : esc((by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : ""))].filter(Boolean).join(" · ");
   return `<div class="item${i.done ? " done" : ""}" data-item="${esc(i.id)}">
     <button class="tick" data-toggle="${esc(i.id)}" aria-pressed="${!!i.done}">
       <span class="box">${CHECK}</span>
       <span class="txt"><span class="name">${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ""}${esc(i.text)}</span>${meta ? `<span class="meta">${meta}</span>` : ""}</span>
     </button>
+    ${safeUrl(i.link) ? `<a class="more" href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener" aria-label="Link zu ${esc(i.text)} öffnen">${LINK}</a>` : ""}
     <button class="more" data-edit="${esc(i.id)}" aria-label="${esc(i.text)} bearbeiten">${DOTS}</button>
   </div>`;
 }
 function renderSugg() {
-  const cur = activeList(); if (!cur || isTodo()) { $("sugg").innerHTML = ""; $("sugg").hidden = true; return; }
+  const cur = activeList(); if (!cur || kind() !== "shop") { $("sugg").innerHTML = ""; $("sugg").hidden = true; return; }
   const q = keyOf($("addInput").value);
   const onList = new Set(state.items.filter(i => i.list === cur.id && !i.done).map(i => keyOf(i.text)));
   const entries = Object.entries(state.history)
@@ -547,31 +616,40 @@ async function resolveNames() {
 // ---------- Aktionen ----------
 async function addEntry(raw) {
   const cur = activeList(); if (!cur || !raw.trim()) return;
-  if (isTodo()) {
+  const k = kind();
+  if (k === "recipe") { const text = raw.trim(); editRecipe({ list: cur.id, text: text.charAt(0).toUpperCase() + text.slice(1) }); return; }
+  if (k !== "shop") {
     for (const p of raw.split(/[;\n]+/).map(s => s.trim()).filter(Boolean)) {
       const text = p.charAt(0).toUpperCase() + p.slice(1);
       const existing = state.items.find(i => i.list === cur.id && !i.done && keyOf(i.text) === keyOf(text));
       if (existing) { flashId = existing.id; toast(`${text} steht schon drauf.`); render(); continue; }
-      await backend.addItem({ list: cur.id, text, note: "", due: "", done: false, at: Date.now(), by: state.me || null });
+      await backend.addItem(k === "wish"
+        ? { list: cur.id, text, note: "", price: "", link: "", done: false, at: Date.now(), by: state.me || null }
+        : { list: cur.id, text, note: "", due: "", done: false, at: Date.now(), by: state.me || null });
     }
     return;
   }
-  const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  return addShopItems(cur.id, raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean));
+}
+async function addShopItems(listId, parts) {
   const hist = { ...state.history };
+  let added = 0;
   for (const p of parts) {
     const { text, qty } = parseEntry(p);
     const k = keyOf(text);
-    const existing = state.items.find(i => i.list === cur.id && keyOf(i.text) === k);
+    const existing = state.items.find(i => i.list === listId && keyOf(i.text) === k);
     if (existing && !existing.done) { flashId = existing.id; toast(`${text} steht schon drauf.`); render(); continue; }
     const cat = (hist[k] && hist[k].cat) || guessCat(text);
     if (existing && existing.done) {
       await backend.updateItem(existing.id, { done: false, doneAt: null, qty: qty || existing.qty || "", at: Date.now(), by: state.me || null });
     } else {
-      await backend.addItem({ list: cur.id, text, qty, cat, note: "", done: false, at: Date.now(), by: state.me || null });
+      await backend.addItem({ list: listId, text, qty, cat, note: "", done: false, at: Date.now(), by: state.me || null });
     }
-    hist[k] = { text, cat, n: ((hist[k] && hist[k].n) || 0) + 1, list: cur.id };
+    added++;
+    hist[k] = { text, cat, n: ((hist[k] && hist[k].n) || 0) + 1, list: listId };
   }
   backend.setHistory(trimHistory(hist));
+  return added;
 }
 function trimHistory(h) {
   const e = Object.entries(h).sort((a, b) => b[1].n - a[1].n).slice(0, 300);
@@ -594,7 +672,8 @@ async function copyList() {
   const cur = activeList();
   const open = state.items.filter(i => i.list === cur.id && !i.done);
   let txt = `${cur.name}:\n`;
-  if (isTodo()) txt += "\n" + open.map(i => { const dl = dueLabel(i.due); return `☐ ${i.text}${dl ? " (" + dl.txt + ")" : ""}${i.note ? " – " + i.note : ""}`; }).join("\n");
+  if (kind() === "wish") txt += "\n" + open.map(i => `• ${i.text}${priceText(i.price) ? " (" + priceText(i.price) + ")" : ""}${i.note ? " – " + i.note : ""}${safeUrl(i.link) ? "\n  " + safeUrl(i.link) : ""}`).join("\n");
+  else if (isTodo()) txt += "\n" + open.map(i => { const dl = dueLabel(i.due); return `☐ ${i.text}${dl ? " (" + dl.txt + ")" : ""}${i.note ? " – " + i.note : ""}`; }).join("\n");
   else for (const c of CATS) {
     const g = open.filter(i => (i.cat || "sonst") === c.id);
     if (!g.length) continue;
@@ -616,6 +695,7 @@ function editItem(id) {
   const i = state.items.find(x => x.id === id); if (!i) return;
   const ls = sortedLists();
   if (isTodo()) return editTodo(i, ls);
+  if (kind() === "wish") return editWish(i, ls);
   openSheet(`
     <h3>Eintrag bearbeiten</h3>
     <div class="field"><label for="eText">Was</label><input id="eText" value="${esc(i.text)}"></div>
@@ -669,13 +749,97 @@ function editTodo(i, ls) {
     };
   });
 }
+function editWish(i, ls) {
+  const id = i.id;
+  openSheet(`
+    <h3>Wunsch bearbeiten</h3>
+    <div class="field"><label for="wText">Was</label><input id="wText" value="${esc(i.text)}"></div>
+    <div class="row2">
+      <div class="field"><label for="wPrice">Preis</label><input id="wPrice" inputmode="decimal" value="${esc(i.price)}" placeholder="z. B. 39,99"></div>
+      <div class="field"><label for="wList">Für</label><select id="wList">${ls.map(l => `<option value="${esc(l.id)}"${l.id === i.list ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label for="wLink">Link</label><input id="wLink" type="url" inputmode="url" value="${esc(i.link)}" placeholder="https://…"></div>
+    <div class="field"><label for="wNote">Notiz</label><input id="wNote" value="${esc(i.note)}" placeholder="z. B. Größe M, in Blau"></div>
+    <div class="btns">
+      <button class="btn danger" id="wDel">Löschen</button>
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="wSave">Speichern</button></span>
+    </div>`, () => {
+    $("wSave").onclick = () => {
+      const text = $("wText").value.trim(); if (!text) return;
+      backend.updateItem(id, { text, price: $("wPrice").value.trim(), link: $("wLink").value.trim(), note: $("wNote").value.trim(), list: $("wList").value });
+      closeSheet();
+    };
+    $("wDel").onclick = () => {
+      const copy = { ...i }; closeSheet(); backend.deleteItem(id);
+      toast(`${i.text} gelöscht.`, "Rückgängig", () => { const { id: _, ...rest } = copy; backend.addItem(rest); });
+    };
+  });
+}
+function viewRecipe(id) {
+  const r = state.items.find(x => x.id === id); if (!r) return;
+  const ings = ingLines(r);
+  const markets = sortedLists("shop");
+  const last = (() => { try { return localStorage.getItem("einkauf.recipeShop"); } catch (e) { return null; } })();
+  const url = safeUrl(r.link);
+  openSheet(`
+    <h3>${esc(r.text)}</h3>
+    ${r.servings || url || r.note ? `<p class="meta" style="margin:-6px 0 0">${[r.servings ? esc(r.servings) + " Portionen" : "", esc(r.note), url ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent)">Original-Rezept</a>` : ""].filter(Boolean).join(" · ")}</p>` : ""}
+    <p class="rsec">Zutaten</p>
+    ${ings.length ? `<div>${ings.map((x, n) => `<label class="ing"><input type="checkbox" id="ing${n}" checked> <span>${esc(x)}</span></label>`).join("")}</div>
+      ${markets.length ? `<div class="shoprow"><span style="font-size:.85rem">Haken weg bei allem, was ihr noch habt.</span><select id="rShop" aria-label="Einkaufsliste">${markets.map(m => `<option value="${esc(m.id)}"${m.id === last ? " selected" : ""}>${esc(m.name)}</option>`).join("")}</select><button class="btn primary" id="rToShop">Auf die Liste</button></div>` : ""}`
+      : `<p class="meta" style="margin:0">Noch keine Zutaten eingetragen.</p>`}
+    ${r.steps ? `<p class="rsec">Zubereitung</p><p class="steps">${esc(r.steps)}</p>` : ""}
+    <div class="btns"><button class="btn" id="rEdit">Bearbeiten</button><button class="btn primary" data-close>Schließen</button></div>`, () => {
+    $("rEdit").onclick = () => editRecipe(r);
+    if ($("rToShop")) $("rToShop").onclick = async () => {
+      const pick = ings.filter((_, n) => $("ing" + n).checked);
+      if (!pick.length) { toast("Kein Haken gesetzt."); return; }
+      const listId = $("rShop").value; try { localStorage.setItem("einkauf.recipeShop", listId); } catch (e) {}
+      const name = (state.lists.find(l => l.id === listId) || {}).name || "";
+      closeSheet();
+      const added = await addShopItems(listId, pick);
+      toast(added ? `${added} Zutaten auf „${name}“.` : `Steht schon alles auf „${name}“.`);
+    };
+  });
+}
+function editRecipe(r) {
+  const isNew = !r.id;
+  const ls = sortedLists("rezepte");
+  openSheet(`
+    <h3>${isNew ? "Neues Rezept" : "Rezept bearbeiten"}</h3>
+    <div class="field"><label for="rText">Name</label><input id="rText" value="${esc(r.text)}"></div>
+    <div class="row2">
+      <div class="field"><label for="rServ">Portionen</label><input id="rServ" inputmode="numeric" value="${esc(r.servings)}" placeholder="z. B. 4"></div>
+      <div class="field"><label for="rList">Kategorie</label><select id="rList">${ls.map(l => `<option value="${esc(l.id)}"${l.id === r.list ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label for="rIng">Zutaten, eine pro Zeile</label><textarea id="rIng" placeholder="500 g Hackfleisch&#10;1 Zwiebel&#10;2 Dosen Tomaten">${esc(r.ingredients)}</textarea></div>
+    <div class="field"><label for="rSteps">Zubereitung</label><textarea id="rSteps" style="min-height:150px" placeholder="1. Zwiebel würfeln und anbraten …">${esc(r.steps)}</textarea></div>
+    <div class="field"><label for="rLink">Link zum Original</label><input id="rLink" type="url" inputmode="url" value="${esc(r.link)}" placeholder="https://…"></div>
+    <div class="field"><label for="rNote">Notiz</label><input id="rNote" value="${esc(r.note)}" placeholder="z. B. Kinder mögen's, 30 Min."></div>
+    <div class="btns">
+      ${isNew ? "<span></span>" : `<button class="btn danger" id="rDel">Löschen</button>`}
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="rSave">Speichern</button></span>
+    </div>`, () => {
+    if (isNew) $("rIng").focus();
+    $("rSave").onclick = async () => {
+      const text = $("rText").value.trim(); if (!text) return;
+      const o = { text, servings: $("rServ").value.trim(), list: $("rList").value, ingredients: $("rIng").value.trim(), steps: $("rSteps").value.trim(), link: $("rLink").value.trim(), note: $("rNote").value.trim() };
+      if (isNew) { const id = await backend.addItem({ ...o, at: Date.now(), by: state.me || null }); closeSheet(); if (o.list !== activeBy.rezepte) setActive(o.list); if (id) viewRecipe(id); }
+      else { await backend.updateItem(r.id, o); closeSheet(); viewRecipe(r.id); }
+    };
+    if (!isNew) $("rDel").onclick = () => {
+      const copy = { ...r }; closeSheet(); backend.deleteItem(r.id);
+      toast(`${r.text} gelöscht.`, "Rückgängig", () => { const { id: _, ...rest } = copy; backend.addItem(rest); });
+    };
+  });
+}
 function listSheet(l) {
   const isNew = !l;
   openSheet(`
-    <h3>${isNew ? "Neue Liste" : "Liste bearbeiten"}</h3>
-    <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="${isTodo() ? "z. B. Garten, Urlaub" : "z. B. Baumarkt, Party"}"></div>
+    <h3>${isNew ? "Neue " + T().list : T().list + " bearbeiten"}</h3>
+    <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="${T().listPh}"></div>
     <div class="btns">
-      ${isNew ? "<span></span>" : `<button class="btn danger" id="lDel">Liste löschen</button>`}
+      ${isNew ? "<span></span>" : `<button class="btn danger" id="lDel">${T().list} löschen</button>`}
       <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="lSave">${isNew ? "Anlegen" : "Speichern"}</button></span>
     </div>
     <div id="lConfirm"></div>`, () => {
@@ -715,6 +879,7 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.section) setSection(t.dataset.section);
   else if (t.dataset.list) setActive(t.dataset.list);
+  else if (t.dataset.recipe) viewRecipe(t.dataset.recipe);
   else if (t.id === "newList") listSheet(null);
   else if (t.id === "editList") listSheet(activeList());
   else if (t.dataset.toggle) toggle(t.dataset.toggle);
