@@ -81,7 +81,7 @@ h1 { font-family: var(--f-display); font-weight: 800; font-size: 1.75rem; letter
 .recipe { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 14px; min-height: 60px; }
 .card > .recipe:first-child { border-top: 0; }
 .recipe .rname { font-family: var(--f-display); font-weight: 600; font-size: 1.08rem; }
-.recipe .chev { margin-left: auto; color: var(--muted); flex: none; }
+.chev { margin-left: auto; color: var(--muted); flex: none; }
 .field textarea { border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 10px 12px; font: inherit; min-height: 110px; resize: vertical; }
 .rsec { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; margin: 6px 0 0; }
 .ing { display: flex; align-items: center; gap: 10px; padding: 6px 2px; cursor: pointer; }
@@ -90,6 +90,15 @@ h1 { font-family: var(--f-display); font-weight: 800; font-size: 1.75rem; letter
 .shoprow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--accent-soft); border-radius: 12px; padding: 10px; }
 .shoprow select { flex: 1; min-width: 120px; border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 9px 10px; }
 a.more { text-decoration: none; }
+.term { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 10px 14px; min-height: 68px; }
+.card > .term:first-child { border-top: 0; }
+.dateblk { flex: none; width: 52px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: flex; flex-direction: column; align-items: center; padding: 6px 0 5px; line-height: 1; }
+.dateblk .d { font-family: var(--f-display); font-weight: 800; font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.dateblk .m { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; margin-top: 3px; }
+.term .when { font-weight: 600; color: var(--accent); }
+.term.soon .dateblk { background: var(--accent); color: var(--accent-ink); }
+.term.past { opacity: .55; }
+.term.past .dateblk { background: var(--bg); color: var(--muted); }
 .due.late { color: var(--danger); }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-block: 10px 2px; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -300,8 +309,13 @@ function localBackend() {
   if (!d) d = { lists: seedLists(), items: [], history: {}, v: SEED_VERSION };
   if ((d.v || 1) < SEED_VERSION) {
     for (const l of d.lists) if (MIGRATE[l.id]) Object.assign(l, MIGRATE[l.id]);
-    for (const l of seedLists()) if (!d.lists.some(x => x.id === l.id || x.id === MIGRATED_TO[l.id])) d.lists.push(l);
+    for (const l of seedLists()) {
+      const own = ADOPT[l.id] && d.lists.find(ADOPT[l.id]);
+      if (own) { own.type = l.type; continue; }
+      if (!d.lists.some(x => x.id === l.id || x.id === MIGRATED_TO[l.id])) d.lists.push(l);
+    }
     d.v = SEED_VERSION;
+    try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {}
   }
   const save = () => { try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} apply(); };
   const apply = () => { state.lists = d.lists.slice(); state.items = d.items.slice(); state.history = d.history; state.ready = true; render(); };
@@ -347,15 +361,17 @@ const MARKETS = [["rewe", "Rewe"], ["aldi", "Aldi"], ["lidl", "Lidl"], ["kauflan
 const SEED = {
   shop: MARKETS,
   todo: [["todo-paul", "Paul"], ["todo-elina", "Elina"]],
-  schule: [["schule-aufgaben", "Aufgaben"]],
+  schule: [["schule-aufgaben", "Aufgaben"], ["schule-pruefungen", "Klausuren und Prüfungen", "termine"]],
   rezepte: [["rezepte-kochen", "Kochen"], ["rezepte-backen", "Backen"]],
   wunsch: [["wunsch-paul", "Paul"], ["wunsch-elina", "Elina"]],
 };
-const SEED_VERSION = 3;
-const seedLists = () => Object.entries(SEED).flatMap(([sec, arr]) => arr.map(([id, name], i) => ({ id, name, order: i + 1, section: sec })));
+const SEED_VERSION = 4;
+const seedLists = () => Object.entries(SEED).flatMap(([sec, arr]) => arr.map(([id, name, type], i) => ({ id, name, order: i + 1, section: sec, ...(type ? { type } : {}) })));
 // v3: aus der alten To-do-Liste "Schule" wird die Liste "Aufgaben" im Bereich Techniker Schule
 const MIGRATE = { "todo-schule": { section: "schule", name: "Aufgaben", order: 1 } };
 const MIGRATED_TO = { "schule-aufgaben": "todo-schule" };
+// v4: eine schon selbst angelegte Prüfungsliste wird zur Termin-Liste, statt eine zweite anzulegen
+const ADOPT = { "schule-pruefungen": l => (l.section || "shop") === "schule" && /klausur|prüfung|pruefung/i.test(l.name || "") };
 let mode = "local";
 function householdCode() {
   const h = decodeURIComponent(location.hash.slice(1));
@@ -426,7 +442,10 @@ async function startFirebase() {
     const v = s.exists() ? (s.data().v || 1) : 0;
     if (v >= SEED_VERSION) return;
     for (const [id, o] of Object.entries(MIGRATE)) { const r = F.doc(listsC, id); if ((await F.getDoc(r)).exists()) await F.updateDoc(r, o); }
+    const all = (await F.getDocs(listsC)).docs.map(x => ({ id: x.id, ...x.data() }));
     for (const { id, ...o } of seedLists()) {
+      const own = ADOPT[id] && all.find(ADOPT[id]);
+      if (own) { if (own.id !== id) { await F.updateDoc(F.doc(listsC, own.id), { type: o.type }); continue; } }
       const ids = [id, MIGRATED_TO[id]].filter(Boolean);
       let has = false; for (const x of ids) if ((await F.getDoc(F.doc(listsC, x))).exists()) has = true;
       if (!has) await F.setDoc(F.doc(listsC, id), o);
@@ -482,7 +501,13 @@ function dueLabel(due) {
   const txt = diff === 0 ? "heute" : diff === 1 ? "morgen" : diff === -1 ? "seit gestern" : diff < 0 ? `seit ${-diff} Tagen` : diff < 7 ? `bis ${WD[dt.getDay()]}` : `bis ${d}.${m}.`;
   return { txt, late: diff < 0 };
 }
-function openCount(sec) { const ids = new Set(sortedLists(sec).map(l => l.id)); return state.items.filter(i => ids.has(i.list) && !i.done).length; }
+const MON = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+const todayStr = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+const isTermList = l => !!l && l.type === "termine";
+function daysUntil(date) { const [y, m, d] = date.split("-").map(Number); const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((new Date(y, m - 1, d) - t) / 86400000); }
+function untilText(n) { return n === 0 ? "heute" : n === 1 ? "morgen" : n === 2 ? "übermorgen" : n > 0 ? (n < 21 ? `in ${n} Tagen` : `in ${Math.round(n / 7)} Wochen`) : n === -1 ? "gestern" : `vor ${-n} Tagen`; }
+function isOpenItem(i) { const l = state.lists.find(x => x.id === i.list); return isTermList(l) ? !!i.due && i.due >= todayStr() : !i.done; }
+function openCount(sec) { const ids = new Set(sortedLists(sec).map(l => l.id)); return state.items.filter(i => ids.has(i.list) && isOpenItem(i)).length; }
 function ago(ts) {
   if (!ts) return "";
   const m = Math.round((Date.now() - ts) / 60000);
@@ -509,7 +534,7 @@ function render() {
   $("addBtn").textContent = t.add;
 
   $("tabs").innerHTML = ls.map(l => {
-    const n = state.items.filter(i => i.list === l.id && (k === "recipe" || !i.done)).length;
+    const n = state.items.filter(i => i.list === l.id && (k === "recipe" || isOpenItem(i))).length;
     return `<button class="tab" role="tab" aria-selected="${cur && l.id === cur.id}" data-list="${esc(l.id)}">${esc(l.name)}<span class="n">${n || ""}</span></button>`;
   }).join("") + `<button class="tab add" id="newList" aria-label="Neue ${t.list}">+ ${t.list}</button>`;
   if (!cur) {
@@ -517,11 +542,25 @@ function render() {
     $("addForm").hidden = true; $("sugg").innerHTML = ""; return;
   }
   $("addForm").hidden = false;
+  if (isTermList(cur)) { $("addInput").placeholder = "Neuer Termin, z. B. Zwischenprüfung"; $("addBtn").textContent = "Weiter"; }
 
   const mine = state.items.filter(i => i.list === cur.id);
   let html = "";
   const extra = mode === "fb" ? `<button class="chipbtn" id="shareLink">Link teilen</button><button class="chipbtn" id="changeName">${state.me ? "Ich bin " + esc(state.me) : "Name eintragen"}</button>` : "";
 
+  if (isTermList(cur)) {
+    const today = todayStr();
+    const sorted = mine.slice().sort((a, b) => String(a.due || "").localeCompare(b.due || "") || String(a.time || "").localeCompare(b.time || ""));
+    const up = sorted.filter(i => (i.due || "") >= today), past = sorted.filter(i => (i.due || "") < today).reverse();
+    html = up.length ? `<section class="group"><div class="card">${up.map((i, n) => termRow(i, n === 0)).join("")}</div></section>`
+      : `<div class="empty"><strong>Keine Termine</strong>Tipp unten ein, was ansteht, z. B. „Zwischenprüfung“. Danach wählst du das Datum.</div>`;
+    if (past.length) html += `<div class="donehead"><h2>Vorbei · ${past.length}</h2><button class="link danger" id="clearPast">Vergangene löschen</button></div><div class="card">${past.map(i => termRow(i, false)).join("")}</div>`;
+    html += `<div class="tools">${up.length ? `<button class="chipbtn" id="copyList">Als Text kopieren</button>` : ""}<button class="chipbtn" id="editList">Liste bearbeiten</button>${extra}</div>`;
+    $("main").innerHTML = html;
+    if (flashId) { const el = document.querySelector(`[data-term="${CSS.escape(flashId)}"]`); if (el) { el.classList.add("flash"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } flashId = null; }
+    renderSugg();
+    return;
+  }
   if (k === "recipe") {
     const rs = mine.slice().sort((a, b) => String(a.text).localeCompare(b.text, "de"));
     html = rs.length
@@ -564,6 +603,56 @@ function render() {
 const ingLines = r => String(r.ingredients || "").split("\n").map(x => x.replace(/^[-•*\s]+/, "").trim()).filter(Boolean);
 const CHEV = '<svg class="chev" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>';
 const LINK = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4h5v5M16 4l-7 7M14 12v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3"/></svg>';
+function termRow(i, first) {
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(i.due || "");
+  const [y, m, d] = ok ? i.due.split("-").map(Number) : [0, 0, 0];
+  const n = ok ? daysUntil(i.due) : null;
+  const wd = ok ? WD[new Date(y, m - 1, d).getDay()] : "";
+  const meta = [ok ? `<span class="when">${esc(untilText(n))}</span>` : "kein Datum", ok ? `${wd}, ${d}.${m}.${y !== new Date().getFullYear() ? y : ""}` : "", i.time ? esc(i.time) + " Uhr" : "", esc(i.note)].filter(Boolean).join(" · ");
+  return `<button class="term${n !== null && n < 0 ? " past" : ""}${first && n !== null && n <= 14 ? " soon" : ""}" data-term="${esc(i.id)}">
+    <span class="dateblk"><span class="d">${ok ? d : "?"}</span><span class="m">${ok ? MON[m - 1] : ""}</span></span>
+    <span class="txt"><span class="name">${esc(i.text)}</span><span class="meta">${meta}</span></span>${CHEV}</button>`;
+}
+function editTermin(i) {
+  const isNew = !i.id;
+  const ls = sortedLists().filter(isTermList);
+  openSheet(`
+    <h3>${isNew ? "Neuer Termin" : "Termin bearbeiten"}</h3>
+    <div class="field"><label for="mText">Was</label><input id="mText" value="${esc(i.text)}" placeholder="z. B. Zwischenprüfung"></div>
+    <div class="row2">
+      <div class="field"><label for="mDate">Datum</label><input id="mDate" type="date" value="${esc(i.due)}" required></div>
+      <div class="field"><label for="mTime">Uhrzeit (optional)</label><input id="mTime" type="time" value="${esc(i.time)}"></div>
+    </div>
+    ${ls.length > 1 ? `<div class="field"><label for="mList">Liste</label><select id="mList">${ls.map(l => `<option value="${esc(l.id)}"${l.id === i.list ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>` : ""}
+    <div class="field"><label for="mNote">Notiz</label><input id="mNote" value="${esc(i.note)}" placeholder="z. B. Raum 204, Taschenrechner mitnehmen"></div>
+    <p id="mErr" class="meta" style="margin:0;color:var(--danger)" hidden>Bitte ein Datum wählen.</p>
+    <div class="btns">
+      ${isNew ? "<span></span>" : `<button class="btn danger" id="mDel">Löschen</button>`}
+      <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="mSave">Speichern</button></span>
+    </div>`, () => {
+    if (isNew && i.text) { const el = $("mDate"); el.focus(); try { el.showPicker && el.showPicker(); } catch (e) {} }
+    $("mSave").onclick = async () => {
+      const text = $("mText").value.trim(), due = $("mDate").value;
+      if (!text) { $("mText").focus(); return; }
+      if (!due) { $("mErr").hidden = false; $("mDate").focus(); return; }
+      const o = { text, due, time: $("mTime").value || "", note: $("mNote").value.trim(), list: $("mList") ? $("mList").value : i.list };
+      closeSheet();
+      if (isNew) { flashId = await backend.addItem({ ...o, done: false, at: Date.now(), by: state.me || null }); render(); }
+      else backend.updateItem(i.id, o);
+    };
+    if (!isNew) $("mDel").onclick = () => {
+      const copy = { ...i }; closeSheet(); backend.deleteItem(i.id);
+      toast(`${i.text} gelöscht.`, "Rückgängig", () => { const { id: _, ...rest } = copy; backend.addItem(rest); });
+    };
+  });
+}
+async function clearPast() {
+  const cur = activeList(), today = todayStr();
+  const past = state.items.filter(i => i.list === cur.id && (i.due || "") < today);
+  const saved = past.map(i => ({ ...i }));
+  for (const i of past) await backend.deleteItem(i.id);
+  toast(`${past.length} gelöscht.`, "Rückgängig", async () => { for (const i of saved) { const { id, ...rest } = i; await backend.addItem(rest); } });
+}
 function recipeRow(r) {
   const n = ingLines(r).length;
   const meta = [n ? `${n} Zutaten` : "noch keine Zutaten", r.servings ? `${r.servings} Portionen` : "", r.note].filter(Boolean).join(" · ");
@@ -617,6 +706,7 @@ async function resolveNames() {
 async function addEntry(raw) {
   const cur = activeList(); if (!cur || !raw.trim()) return;
   const k = kind();
+  if (isTermList(cur)) { const text = raw.trim(); editTermin({ list: cur.id, text: text.charAt(0).toUpperCase() + text.slice(1) }); return; }
   if (k === "recipe") { const text = raw.trim(); editRecipe({ list: cur.id, text: text.charAt(0).toUpperCase() + text.slice(1) }); return; }
   if (k !== "shop") {
     for (const p of raw.split(/[;\n]+/).map(s => s.trim()).filter(Boolean)) {
@@ -672,7 +762,8 @@ async function copyList() {
   const cur = activeList();
   const open = state.items.filter(i => i.list === cur.id && !i.done);
   let txt = `${cur.name}:\n`;
-  if (kind() === "wish") txt += "\n" + open.map(i => `• ${i.text}${priceText(i.price) ? " (" + priceText(i.price) + ")" : ""}${i.note ? " – " + i.note : ""}${safeUrl(i.link) ? "\n  " + safeUrl(i.link) : ""}`).join("\n");
+  if (isTermList(cur)) txt += "\n" + state.items.filter(i => i.list === cur.id && (i.due || "") >= todayStr()).sort((a, b) => a.due.localeCompare(b.due)).map(i => { const [y, m, d] = i.due.split("-").map(Number); return `${WD[new Date(y, m - 1, d).getDay()]} ${d}.${m}.${i.time ? " " + i.time : ""} – ${i.text}${i.note ? " (" + i.note + ")" : ""}`; }).join("\n");
+  else if (kind() === "wish") txt += "\n" + open.map(i => `• ${i.text}${priceText(i.price) ? " (" + priceText(i.price) + ")" : ""}${i.note ? " – " + i.note : ""}${safeUrl(i.link) ? "\n  " + safeUrl(i.link) : ""}`).join("\n");
   else if (isTodo()) txt += "\n" + open.map(i => { const dl = dueLabel(i.due); return `☐ ${i.text}${dl ? " (" + dl.txt + ")" : ""}${i.note ? " – " + i.note : ""}`; }).join("\n");
   else for (const c of CATS) {
     const g = open.filter(i => (i.cat || "sonst") === c.id);
@@ -838,6 +929,7 @@ function listSheet(l) {
   openSheet(`
     <h3>${isNew ? "Neue " + T().list : T().list + " bearbeiten"}</h3>
     <div class="field"><label for="lName">Name</label><input id="lName" value="${esc(l ? l.name : "")}" placeholder="${T().listPh}"></div>
+    ${isTodo() ? `<div class="field"><label for="lType">Art</label><select id="lType"><option value="aufgaben">Aufgaben zum Abhaken</option><option value="termine"${isTermList(l) ? " selected" : ""}>Termine mit Datum (z. B. Prüfungen)</option></select></div>` : ""}
     <div class="btns">
       ${isNew ? "<span></span>" : `<button class="btn danger" id="lDel">${T().list} löschen</button>`}
       <span style="display:flex;gap:8px"><button class="btn" data-close>Abbrechen</button><button class="btn primary" id="lSave">${isNew ? "Anlegen" : "Speichern"}</button></span>
@@ -848,9 +940,9 @@ function listSheet(l) {
       const name = $("lName").value.trim(); if (!name) return;
       if (isNew) {
         const order = Math.max(0, ...sortedLists().map(x => x.order || 0)) + 1;
-        await backend.addList({ name, order, section });
+        await backend.addList({ name, order, section, ...($("lType") ? { type: $("lType").value } : {}) });
         const nl = sortedLists().find(x => x.name === name); if (nl) setActive(nl.id);
-      } else await backend.updateList(l.id, { name });
+      } else await backend.updateList(l.id, { name, ...($("lType") ? { type: $("lType").value } : {}) });
       closeSheet();
     };
     $("lSave").onclick = save;
@@ -880,6 +972,8 @@ document.addEventListener("click", e => {
   if (t.dataset.section) setSection(t.dataset.section);
   else if (t.dataset.list) setActive(t.dataset.list);
   else if (t.dataset.recipe) viewRecipe(t.dataset.recipe);
+  else if (t.dataset.term) { const i = state.items.find(x => x.id === t.dataset.term); if (i) editTermin(i); }
+  else if (t.id === "clearPast") clearPast();
   else if (t.id === "newList") listSheet(null);
   else if (t.id === "editList") listSheet(activeList());
   else if (t.dataset.toggle) toggle(t.dataset.toggle);
