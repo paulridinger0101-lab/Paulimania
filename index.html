@@ -1625,6 +1625,9 @@ function renderMatchday() {
 /* ---------- Soccerhalle: 2-4 teams of 5 (3 defensive, 2 offensive), no goalkeeper ---------- */
 const HALL_DEF = new Set(["TW", "LV", "IV", "RV", "ZM"]);
 const HALL_TEAMS = [["Rot", "#d64545", "#fff", "🔴"], ["Blau", "#2f6fd6", "#fff", "🔵"], ["Gelb", "#e0b100", "#142019", "🟡"], ["Grün", "#2f9e57", "#fff", "🟢"]];
+// with only 2 teams: hell und dunkel, like on the big pitch
+const HALL_TWO = [["Weiß", "#e4e9e2", "#142019", "⚪"], ["Schwarz", "#141815", "#fff", "⚫"]];
+function hallTeam(i) { const n = (state.hall.teams || []).length; return (n === 2 ? HALL_TWO : HALL_TEAMS)[i]; }
 function hallRole(id) { const p = P(id); if (!p || !p.pos) return ""; return HALL_DEF.has(p.pos) ? "DEF" : "OFF"; }
 function hallK() { const k = +state.hall.k; return [2, 3, 4].includes(k) ? k : 4; }
 function hallSort(t) { return t.slice().sort((x, y) => ({ DEF: 0, OFF: 1, "": 2 }[hallRole(x)] - { DEF: 0, OFF: 1, "": 2 }[hallRole(y)]) || ovr(P(y)) - ovr(P(x))); }
@@ -1718,7 +1721,7 @@ function renderHall() {
     const all = teams.flat();
     const stale = all.length !== n || all.some(id => !sel.has(id));
     const card = (t, i) => {
-      const [name, col, ink] = HALL_TEAMS[i], ps = t.map(P).filter(revealed);
+      const [name, col, ink] = hallTeam(i), ps = t.map(P).filter(revealed);
       const avg = ps.length ? ps.reduce((s, p) => s + ovr(p), 0) / ps.length : null;
       const sorted = hallSort(t); let lastR = null;
       const lis = sorted.map(id => { const r = hallRole(id), sep = lastR !== null && r !== lastR; lastR = r;
@@ -1742,8 +1745,8 @@ function renderHall() {
 }
 function hallText() {
   const h = state.hall;
-  return `⚽ Soccerhalle, ${fmtDate(h.date)}\n\n` + h.teams.map((t, i) => { const [name, , , em] = HALL_TEAMS[i];
-    return `${em} Team ${name}\n${hallSort(t.filter(id => P(id))).map(id => `• ${P(id).name}${hallRole(id) ? ` (${hallRole(id) === "DEF" ? "Def" : "Off"})` : ""}`).join("\n")}`; }).join("\n\n");
+  return `⚽ Soccerhalle, ${fmtDate(h.date)}\n\n` + h.teams.map((t, i) => { const [name, , , em] = hallTeam(i);
+    return `${em} Team ${name}\n${hallSort(t.filter(id => P(id))).map(id => `• ${P(id).name}`).join("\n")}`; }).join("\n\n");
 }
 async function hallImage() {
   try { await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 30px "Barlow"'); } catch (e) {}
@@ -1757,18 +1760,15 @@ async function hallImage() {
   g.font = `600 34px ${BODY}`; g.fillStyle = "rgba(244,248,242,.8)"; g.fillText(`Soccerhalle · ${fmtDate(h.date)} · ${teams.length} Teams`, W / 2, 148);
   const CW = (W - 60 * 2 - 40) / 2;
   teams.forEach((t, i) => {
-    const [name, col, ink] = HALL_TEAMS[i], x = 60 + (i % 2) * (CW + 40), y = 200 + Math.floor(i / 2) * (CH + 40);
+    const [name, col, ink] = hallTeam(i), x = 60 + (i % 2) * (CW + 40), y = 200 + Math.floor(i / 2) * (CH + 40);
     g.fillStyle = "#fff"; g.beginPath(); g.roundRect(x, y, CW, CH, 24); g.fill();
     g.fillStyle = col; g.beginPath(); g.roundRect(x, y, CW, 96, [24, 24, 0, 0]); g.fill();
     g.fillStyle = ink; g.textAlign = "left"; g.font = `700 52px ${DISP}`; g.fillText(name.toUpperCase(), x + 30, y + 66);
-    let lastR = null, yy = y + 96 + 62;
-    t.forEach(id => { const r = hallRole(id);
-      if (lastR !== null && r !== lastR) { g.strokeStyle = "#c9d3c9"; g.setLineDash([10, 8]); g.lineWidth = 2; g.beginPath(); g.moveTo(x + 24, yy - 46); g.lineTo(x + CW - 24, yy - 46); g.stroke(); g.setLineDash([]); }
-      lastR = r;
-      g.fillStyle = "#5a6a60"; g.font = `700 32px ${DISP}`; g.fillText(r || "–", x + 30, yy);
+    let yy = y + 96 + 62;
+    t.forEach(id => {
       g.fillStyle = "#142019"; g.font = `600 36px ${BODY}`;
-      let nm = P(id).name; while (g.measureText(nm).width > CW - 130 && nm.length > 3) nm = nm.slice(0, -2) + "…";
-      g.fillText(nm, x + 100, yy); yy += 74; });
+      let nm = P(id).name; while (g.measureText(nm).width > CW - 60 && nm.length > 3) nm = nm.slice(0, -2) + "…";
+      g.fillText(nm, x + 30, yy); yy += 74; });
   });
   return await new Promise(res => cv.toBlob(res, "image/png"));
 }
