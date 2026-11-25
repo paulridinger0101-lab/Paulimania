@@ -1756,7 +1756,7 @@ async function hallImage() {
   const CH = 110 + maxN * 74 + 30, H = 230 + rows * (CH + 40) + 30;
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
   g.fillStyle = "#0f3d23"; g.fillRect(0, 0, W, H);
-  g.textAlign = "center"; g.fillStyle = "#f4f8f2"; g.font = `700 64px ${DISP}`; g.fillText("SCHNEPPENHAUSEN", W / 2, 92);
+  g.textAlign = "center"; g.fillStyle = "#f4f8f2"; g.font = `700 64px ${DISP}`; g.fillText("DARMSTADT", W / 2, 92);
   g.font = `600 34px ${BODY}`; g.fillStyle = "rgba(244,248,242,.8)"; g.fillText(`Soccerhalle · ${fmtDate(h.date)} · ${teams.length} Teams`, W / 2, 148);
   const CW = (W - 60 * 2 - 40) / 2;
   teams.forEach((t, i) => {
