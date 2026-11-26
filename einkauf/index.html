@@ -200,6 +200,24 @@ form.add button {
 }
 .toast button { border: 0; background: none; color: var(--marker); font-weight: 600; padding: 0; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+/* Kompakte Einkaufsliste: flachere Zeilen, weniger Abstand */
+body.compact main { padding-top: 2px; }
+body.compact .group { margin-top: 8px; }
+body.compact .item, body.compact .item .tick { min-height: 36px; }
+body.compact .item .tick { padding: 4px 2px 4px 12px; gap: 10px; }
+body.compact .box { width: 19px; height: 19px; border-radius: 6px; }
+body.compact .box svg { width: 12px; height: 12px; }
+body.compact .name { font-size: .94rem; line-height: 1.25; }
+body.compact .meta { font-size: .72rem; line-height: 1.2; }
+body.compact .more { width: 34px; height: 34px; margin-right: 2px; }
+.cathead { display: flex; align-items: center; gap: 7px; padding: 7px 12px 3px; border-top: 1px solid var(--line); font-size: .66rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; background: color-mix(in srgb, var(--bg) 55%, var(--paper)); }
+.card > .cathead:first-child { border-top: 0; }
+.cathead .sw { width: 8px; height: 8px; border-radius: 3px; }
+.cathead + .item { border-top: 0; }
+body.compact .donehead { margin-top: 16px; }
+.donetoggle { border: 0; background: none; padding: 6px 0; display: flex; align-items: center; gap: 6px; font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+.donetoggle svg { transition: transform .15s; }
+.donetoggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 .setup { padding-block: 40px 20px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
 .setup h2 { font-family: var(--f-display); font-weight: 800; font-size: 1.5rem; margin: 0; text-wrap: balance; }
 .setup p { margin: 0; color: var(--muted); max-width: 46ch; }
@@ -247,7 +265,7 @@ const CATS = [
   { id: "brot", name: "Brot & Backwaren", color: "#c08a3e", words: "brot brötchen toast baguette brezel croissant semmel knäcke wrap tortilla laugen kuchen" },
   { id: "kuehl", name: "Kühlregal", color: "#3d8bd4", words: "milch hafermilch sojamilch butter käse gouda mozzarella feta parmesan frischkäse quark joghurt sahne schmand creme crème ei eier wurst schinken salami aufschnitt tofu hummus pudding margarine buttermilch kefir skyr" },
   { id: "fleisch", name: "Fleisch & Fisch", color: "#c4524a", words: "hack hackfleisch hähnchen huhn pute rind schwein steak schnitzel bratwurst würstchen speck lachs fisch thunfisch garnelen filet gyros" },
-  { id: "vorrat", name: "Vorrat", color: "#9a7b4f", words: "nudeln pasta spaghetti reis mehl zucker salz pfeffer öl olivenöl essig ketchup senf mayo mayonnaise brühe dose tomaten passata linsen bohnen kichererbsen müsli haferflocken cornflakes honig marmelade nutella aufstrich gewürz backpulver hefe soße sauce pesto couscous" },
+  { id: "vorrat", name: "Vorrat", color: "#9a7b4f", words: "nudeln pasta spaghetti reis mehl zucker salz pfeffer öl olivenöl essig ketchup senf mayo mayonnaise brühe passata linsen bohnen kichererbsen müsli haferflocken cornflakes honig marmelade nutella aufstrich gewürz backpulver hefe soße sauce pesto couscous" },
   { id: "suess", name: "Süßes & Snacks", color: "#d26aa8", words: "schokolade chips kekse gummibärchen süßigkeit snack nüsse erdnüsse salzstangen popcorn riegel" },
   { id: "getraenke", name: "Getränke", color: "#2fa3a3", words: "wasser sprudel saft apfelsaft orangensaft cola limo limonade bier wein sekt kaffee tee kakao eistee schorle mate" },
   { id: "tk", name: "Tiefkühl", color: "#6c8ee0", words: "tk tiefkühl pizza eis pommes erbsen spinat-tk fischstäbchen" },
@@ -520,13 +538,14 @@ function ago(ts) {
 }
 function who(id) { if (!id) return ""; if (state.me && id === state.me) return "dir"; return mode === "fb" ? id : (state.names[id] || ""); }
 
-let flashId = null;
+let flashId = null, doneOpen = false;
 function render() {
   if (!state.ready) return;
   const ls = sortedLists();
   const cur = activeList();
   const k = kind(), t = T();
   if (cur) activeBy[section] = cur.id;
+  document.body.classList.toggle("compact", k === "shop");
   $("sections").innerHTML = SECTIONS.map(x => `<button role="tab" data-section="${x.id}" aria-selected="${x.id === section}">${esc(x.name)}<span class="n">${x.kind === "recipe" ? "" : (openCount(x.id) || "")}</span></button>`).join("");
   if (render.sec !== section) { render.sec = section; const sb = document.querySelector('#sections [aria-selected="true"]'); if (sb) sb.scrollIntoView({ inline: "nearest", block: "nearest" }); }
   $("addInput").placeholder = t.ph;
@@ -585,12 +604,17 @@ function render() {
   }
   if (k !== "shop") {
     if (open.length) html += `<section class="group"><div class="card">${open.map(itemRow).join("")}</div></section>`;
-  } else for (const c of CATS) {
-    const g = open.filter(i => (i.cat || "sonst") === c.id);
-    if (!g.length) continue;
-    html += `<section class="group"><h2><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</h2><div class="card">${g.map(itemRow).join("")}</div></section>`;
+  } else if (open.length) {
+    // Eine durchgehende Karte, Abteilungen als schmale Zwischenzeilen
+    html += `<section class="group"><div class="card">${CATS.map(c => {
+      const g = open.filter(i => (i.cat || "sonst") === c.id);
+      return g.length ? `<div class="cathead"><span class="sw" style="background:${c.color}"></span>${esc(c.name)}</div>${g.map(itemRow).join("")}` : "";
+    }).join("")}</div></section>`;
   }
-  if (done.length) {
+  if (done.length && k === "shop") {
+    html += `<div class="donehead"><button class="donetoggle" id="toggleDone" aria-expanded="${doneOpen}"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l5 5-5 5"/></svg>${t.done} · ${done.length}</button><button class="link danger" id="clearDone">${t.clear}</button></div>
+      ${doneOpen ? `<div class="card">${done.map(itemRow).join("")}</div>` : ""}`;
+  } else if (done.length) {
     html += `<div class="donehead"><h2>${t.done} · ${done.length}</h2><button class="link danger" id="clearDone">${t.clear}</button></div>
       <div class="card">${done.map(itemRow).join("")}</div>`;
   }
@@ -664,7 +688,7 @@ function itemRow(i) {
   const by = who(i.by);
   const dl = !i.done && dueLabel(i.due);
   const pr = priceText(i.price);
-  const meta = [dl ? `<span class="due${dl.late ? " late" : ""}">${esc(dl.txt)}</span>` : "", pr ? `<span class="price">${esc(pr)}</span>` : "", esc(i.note), i.done ? "" : esc((by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : ""))].filter(Boolean).join(" · ");
+  const meta = [dl ? `<span class="due${dl.late ? " late" : ""}">${esc(dl.txt)}</span>` : "", pr ? `<span class="price">${esc(pr)}</span>` : "", esc(i.note), i.done || kind() === "shop" ? "" : esc((by ? `von ${by}` : "") + (i.at ? (by ? ", " : "") + ago(i.at) : ""))].filter(Boolean).join(" · ");
   return `<div class="item${i.done ? " done" : ""}" data-item="${esc(i.id)}">
     <button class="tick" data-toggle="${esc(i.id)}" aria-pressed="${!!i.done}">
       <span class="box">${CHECK}</span>
@@ -974,6 +998,7 @@ document.addEventListener("click", e => {
   else if (t.dataset.recipe) viewRecipe(t.dataset.recipe);
   else if (t.dataset.term) { const i = state.items.find(x => x.id === t.dataset.term); if (i) editTermin(i); }
   else if (t.id === "clearPast") clearPast();
+  else if (t.id === "toggleDone") { doneOpen = !doneOpen; render(); }
   else if (t.id === "newList") listSheet(null);
   else if (t.id === "editList") listSheet(activeList());
   else if (t.dataset.toggle) toggle(t.dataset.toggle);
